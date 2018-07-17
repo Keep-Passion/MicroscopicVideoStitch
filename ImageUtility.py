@@ -336,12 +336,3 @@ class Method():
         else:
             resultImage = image
         return resultImage
-
-if __name__=="__main__":
-    image = cv2.imread("D:\\Coding_Test\\Python\\ImageStitch\\images\\zirconSmall\\1\\WJE068-F (1).jpg", 0)
-    method = Method()
-    kps, descriptors = method.detectAndDescribe(image, 'orb')
-    print(len(kps))
-    print(descriptors.shape)
-    print(kps[0])
-    print(descriptors[0, :])

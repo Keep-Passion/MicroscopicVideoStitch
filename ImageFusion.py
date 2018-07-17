@@ -436,23 +436,3 @@ class ImageFusion(Utility.Method):
                     drawing[i, j] = np.array([0, 0, 255])
                     break
         return drawing
-
-if __name__=="__main__":
-    # 测试
-    num = 6
-    A_1 = np.zeros((num, num), dtype=np.uint8)
-    for i in range(num):
-        for j in range(num):
-            if j < 3:
-                A_1[i, j] = 1
-    for i in range(num):
-        for j in range(num):
-            if i < 3:
-                A_1[i, j] = 1
-    # A_1[0, num-1] = 0;A_1[1, num-1] = 0;A_1[2, num-1] = 0;
-    # A_1[num-1, 0] = 0;  A_1[num-1, 1] = 0;A_1[num-1, 2] = 0;
-    print(A_1)
-
-    A_2 = np.ones((num, num), dtype=np.uint8)
-    imageFusion = ImageFusion()
-    imageFusion.fuseByFadeInAndFadeOut([A_1, A_2])
