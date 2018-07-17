@@ -1,0 +1,6 @@
+*.[jpg]
+*.[txt]
+.idea/
+videos/
+__pycache__/
+.pyc
