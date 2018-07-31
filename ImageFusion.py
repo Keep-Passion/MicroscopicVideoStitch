@@ -267,7 +267,7 @@ class ImageFusion(Utility.Method):
         imagesReturn = np.uint8(self.BlendArbitrary2(imageA, imageB, 4))
         return imagesReturn
 
-    #带权拉普拉斯金字塔融合
+    # 带权拉普拉斯金字塔融合
     def BlendArbitrary(self, img1, img2, R, level):
         # img1 and img2 have the same size
         # R represents the region to be combined
@@ -285,7 +285,7 @@ class ImageFusion(Utility.Method):
         result = self.reconstruct(LC)
         return  result
 
-    #均值融合
+    # 均值融合
     def BlendArbitrary2(self, img1, img2, level):
         # img1 and img2 have the same size
         # R represents the region to be combined
@@ -318,7 +318,7 @@ class ImageFusion(Utility.Method):
 
     def GaussianPyramid(self, R, level):
         G = R.copy().astype(np.float64)
-        gp = [G]
+        gp = [G]                        # 金字塔结构存到list中
         for i in range(level):
             G = cv2.pyrDown(G)
             gp.append(G)
