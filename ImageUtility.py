@@ -336,3 +336,42 @@ class Method():
         else:
             resultImage = image
         return resultImage
+
+
+def make_out_dir(path):
+    """
+    功能：创建文件夹目录，先判断文件夹是否存在，不存在则创建
+    :param path:文件夹目录
+    :return:
+    """
+    try:
+        os.makedirs(path)
+    except OSError:
+        pass
+
+
+def generate_video_from_image(source_image, output_dir):
+    """
+    Convert sour_image to video, simply crop sub-image in source_image in row direction with one pixel increment
+    :param source_image: source_image
+    :param output_dir: video output dir
+    :return:
+    """
+    height, width, depth = source_image.shape
+    fps = 16
+    # video_writer = cv2.VideoWriter(os.path.join(output_dir, "output_video.avi"), cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'), fps, (width,width))
+    video_writer = cv2.VideoWriter(os.path.join(output_dir, "output_video.avi"), cv2.VideoWriter_fourcc(*'XVID'), fps, (width, width))
+    print("Video setting: fps is {} and the frame size is {}".format(fps, (width, width)))
+    print("Start converting")
+    for row_index in range(0, height - width + 1):
+        image_temp = source_image[row_index: row_index + width, 0: width, :]
+        video_writer.write(image_temp)
+        print("The {}th frame with shape of {}".format(row_index+1, image_temp.shape))
+    video_writer.release()
+    print("Convert end")
+
+if __name__=="__main__":
+    # 根据图像生成视频
+    image = cv2.imread("stitching_result.jpg")
+    project_address = os.getcwd()
+    generate_video_from_image(image, os.path.join(project_address, "result"))
