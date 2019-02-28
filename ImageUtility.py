@@ -371,6 +371,7 @@ def generate_video_from_image(source_image, output_dir):
     print("Convert end")
 
 if __name__=="__main__":
+    imagearr = "1"
     # 根据图像生成视频
     image = cv2.imread("stitching_result.jpg")
     project_address = os.getcwd()
