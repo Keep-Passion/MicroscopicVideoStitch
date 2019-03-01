@@ -12,260 +12,202 @@ import time
 
 class ImageFeature():
     # 用来保存串行全局拼接中的第二张图像的特征点和描述子，为后续加速拼接使用
-    isBreak = True      # 判断是否上一次中断
     kps = None
-    feature = None
+    features = None
+    is_break = False
 
 
 class Stitcher(Utility.Method):
     '''
 	    图像拼接类，包括所有跟材料显微组织图像配准相关函数
 	'''
-    direction = 1               # 1： 第一张图像在上，第二张图像在下；   2： 第一张图像在左，第二张图像在右；
-                                # 3： 第一张图像在下，第二张图像在上；   4： 第一张图像在右，第二张图像在左；
-    directIncre = 1
-    fuseMethod = "notFuse"
-    phaseResponseThreshold = 0.15
-    tempImageFeature = ImageFeature()
+    fuse_method = "notFuse"
+    last_image_feature = ImageFeature()
+    sample_rate = 3
 
-    # microcopic video stitch
-    samplingRate = 3                # 每隔几帧取一张
-    tempAddress = "videos\\temp"    # 临时文件夹
-    isIncreInFrameSearch = True     # 判断是否通过增长区域搜索
+    # isIncreInFrameSearch = True         # 判断是否通过增长区域搜索
+    # direction = 1   # 1： 第一张图像在上，第二张图像在下；   2： 第一张图像在左，第二张图像在右；
+    #                 # 3： 第一张图像在下，第二张图像在上；   4： 第一张图像在右，第二张图像在左；
+    # directIncre = 1
+    # def directionIncrease(self, direction):
+    #     direction += self.directIncre
+    #     if direction == 5:
+    #         direction = 1
+    #     if direction == 0:
+    #         direction = 4
+    #     return direction
 
-    def directionIncrease(self, direction):
-        direction += self.directIncre
-        if direction == 5:
-            direction = 1
-        if direction == 0:
-            direction = 4
-        return direction
 
-    def videoStitch(self, filleAddress, caculateOffsetMethod, isVideo = True):
-        # 如果是video的话，就先将视频按照帧率提取成png, 暂存到tempAddress目录下
-        if isVideo == True:
-            isfolderExist = os.path.exists(self.tempAddress)
-            if isfolderExist:
-                self.deleteFilesInFolder(self.tempAddress)
-            else:
-                os.makedirs(self.tempAddress)
-            cap = cv2.VideoCapture(filleAddress)
-            frameNum = 0
-            saveNum = 0
-            self.printAndWrite("Video name:" + filleAddress)
-            self.printAndWrite("Sampling rare:" + self.samplingRate)
-            self.printAndWrite("Sampling images ...")
-            while (True):
-                ret, frame = cap.read()
-                if ret == False:
-                    break
-                frameNum = frameNum + 1
-                if frameNum % self.samplingRate == 0:
-                    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                    saveNum = saveNum + 1
-                    cv2.imwrite(self.tempAddress + "\\" + str(saveNum).zfill(10) + ".png", gray)
-            cap.release()
-            self.printAndWrite("Sampled done, we save images in " + self.tempAddress)
-            filleAddress = self.tempAddress
+    def videoStitch(self, video_address):
 
-        # 开始拼接文件夹下的图片
-        fileList = glob.glob(filleAddress + "\\*.png")
-        fileNum = len(fileList)
-        offsetList = []
-        isFrameAvailable = []
-        describtion = ""
-        startTime = time.time()
-        for fileIndex in range(0, len(fileList) - 1):
-            imageA = cv2.imdecode(np.fromfile(fileList[fileIndex], dtype=np.uint8), cv2.IMREAD_GRAYSCALE)
-            imageB = cv2.imdecode(np.fromfile(fileList[fileIndex + 1], dtype=np.uint8), cv2.IMREAD_GRAYSCALE)
-            (status, offset) = caculateOffsetMethod([imageA, imageB])
-            if status == False:
-                print("  " + str(fileList[fileIndex]) + " and " + str(fileList[fileIndex+1]) + " can not be stitched")
-                fileNum = fileNum - 1
-                continue
-            else:
-                offsetList.append(offset)
-        endTime = time.time()
+        # *********** 对视频采样，将采样的所有图像输出到与视频文件同目录的temp文件夹 ***********
+        # 建立 temp 文件夹
+        file_dir = os.path.dirname(video_address)
+        sample_dir = os.path.join(file_dir, "temp")
+        self.make_out_dir(sample_dir)
 
-        self.printAndWrite("The time of registering is " + str(endTime - startTime) + "s")
-
-        # stitching and fusing
-        self.printAndWrite("start stitching")
-        startTime = time.time()
-        stitchImage = self.getStitchByOffset(fileList, offsetList)
-        endTime = time.time()
-        self.printAndWrite("The time of fusing is " + str(endTime - startTime) + "s")
-        return stitchImage
-
-    def flowStitch(self, fileList, caculateOffsetMethod):
-        self.printAndWrite("Stitching the directory which have " + str(fileList[0]))
-        fileNum = len(fileList)
-        offsetList = []
-        describtion = ""
-        # calculating the offset for small image
-        startTime = time.time()
-        status = True
-        endfileIndex = 0
-        for fileIndex in range(0, fileNum - 1):
-            self.printAndWrite("stitching " + str(fileList[fileIndex]) + " and " + str(fileList[fileIndex + 1]))
-            # imageA = cv2.imread(fileList[fileIndex], 0)
-            # imageB = cv2.imread(fileList[fileIndex + 1], 0)
-            imageA = cv2.imdecode(np.fromfile(fileList[fileIndex], dtype=np.uint8), cv2.IMREAD_GRAYSCALE)
-            imageB = cv2.imdecode(np.fromfile(fileList[fileIndex + 1], dtype=np.uint8), cv2.IMREAD_GRAYSCALE)
-            if caculateOffsetMethod == self.calculateOffsetForPhaseCorrleate:
-                (status, offset) = self.calculateOffsetForPhaseCorrleate([fileList[fileIndex], fileList[fileIndex + 1]])
-            else:
-                (status, offset) = caculateOffsetMethod([imageA, imageB])
-            if status == False:
-                describtion = "  " + str(fileList[fileIndex]) + " and " + str(fileList[fileIndex+1]) + " can not be stitched"
+        # 将 video 采样到 temp 文件夹
+        self.print_and_log("Video name:" + video_address)
+        self.print_and_log("Sampling rate:" + str(self.sample_rate))
+        self.print_and_log("We save sampling images in " + sample_dir)
+        self.print_and_log("Sampling images ...")
+        cap = cv2.VideoCapture(video_address)
+        frame_num = 0
+        save_num = 0
+        start_time = time.time()
+        while True:
+            ret, origin_frame = cap.read()
+            if ret is False:
                 break
+            frame_num = frame_num + 1
+            if frame_num % self.sample_rate == 0:
+                gray_frame = cv2.cvtColor(origin_frame, cv2.COLOR_BGR2GRAY)
+                save_num = save_num + 1
+                cv2.imwrite(os.path.join(sample_dir, str(save_num).zfill(10) + ".png"), gray_frame)
+        cap.release()
+        end_time = time.time()
+        self.print_and_log("Sampled done, The time of sampling is {:.3f} \'s".format(end_time - start_time))
+
+        # **************************** 对采样后的文件进行拼接 ****************************
+        # 开始拼接文件夹下的图片
+        images_address_list = glob.glob(os.path.join(sample_dir, "*.png"))
+        offset_list = []
+        is_image_available = []
+        start_time = time.time()
+        imageA = cv2.imdecode(np.fromfile(images_address_list[0], dtype=np.uint8), cv2.IMREAD_GRAYSCALE)
+        kpsA, featuresA = self.calculate_feature(imageA)
+        self.last_image_feature.kps = kpsA
+        self.last_image_feature.features = featuresA
+        is_image_available.append(True)
+        for file_index in range(1, len(images_address_list)):
+            self.print_and_log("    Analyzing {}th frame and the name is {}".format(file_index, os.path.basename(images_address_list[file_index])))
+            status, offset = self.calculate_offset_by_feature(images_address_list[file_index])
+            if status is False:
+                self.print_and_log("    {}th frame can not be stitched".format(file_index))
+                is_image_available.append(False)
             else:
-                offsetList.append(offset)
-                endfileIndex = fileIndex + 1
-        endTime = time.time()
+                self.print_and_log("    {}th frame can be stitched, the offset is {}".format(file_index, offset))
+                is_image_available.append(True)
+                offset_list.append(offset)
+        end_time = time.time()
+        self.print_and_log("The time of registering is {:.3f} \'s".format(end_time - start_time))
 
-        self.printAndWrite("The time of registering is " + str(endTime - startTime) + "s")
+        # *************************** stitching and fusing ***************************
+        self.print_and_log("start stitching")
+        stitch_image = self.get_stitch_by_offset(images_address_list, is_image_available, offset_list)
+        end_time = time.time()
+        self.print_and_log("The time of fusing is {:.3f} \'s".format(end_time - start_time))
+        return stitch_image
 
-        # stitching and fusing
-        self.printAndWrite("start stitching")
-        startTime = time.time()
-        # offsetList = [[1784, 2], [1805, 2], [1809, 2], [1775, 2], [1760, 2], [1846, 2], [1809, 1], [1812, 2], [1786, 1], [1818, 3], [1786, 2], [1802, 2], [1722, 1], [1211, 1], [-10, 2411], [-1734, -1], [-1808, -1], [-1788, -3], [-1754, -1], [-1727, -2], [-1790, -3], [-1785, -2], [-1778, -1], [-1807, -2], [-1767, -2], [-1822, -3], [-1677, -2], [-1778, -2], [-1440, -1], [-2, 2410], [1758, 2], [1792, 2], [1794, 2], [1840, 3], [1782, 2], [1802, 3], [1782, 2], [1763, 3], [1738, 2], [1837, 3], [1781, 2], [1788, 18], [1712, 0], [1271, -11], [-3, 2478], [-1787, -1], [-1812, -2], [-1822, -2], [-1762, -1], [-1725, -2], [-1884, -2], [-1754, -2], [-1747, -1], [-1666, -1], [-1874, -3], [-1695, -2], [-1672, -1], [-1816, -2], [-1411, -1], [-4, 2431], [1874, 3], [1706, -3], [1782, 2], [1794, 2], [1732, 3], [1838, 3], [1721, 1], [1783, 3], [1805, 2], [1725, 3], [1828, 1], [1774, 3], [1776, 1], [1201, 1], [-16, 2405], [-1821, 0], [-1843, -2], [-1758, -2], [-1742, -3], [-1814, -2], [-1817, -2], [-1848, -2], [-1768, -2], [-1749, -2], [-1765, -2], [-1659, -2], [-1832, -2], [-1791, -2], [-1197, -1]]
-        stitchImage = self.getStitchByOffset(fileList, offsetList)
-        endTime = time.time()
-        self.printAndWrite("The time of fusing is " + str(endTime - startTime) + "s")
 
-        if status == False:
-            self.printAndWrite(describtion)
-        return ((status, endfileIndex), stitchImage)
+    def calculate_feature(self, origin_image):
+        if self.is_enhance == True:
+            if self.is_clahe == True:
+                clahe = cv2.createCLAHE(clipLimit=self.clipLimit, tileGridSize=(self.tileSize, self.tileSize))
+                origin_image = clahe.apply(origin_image)
+            elif self.is_clahe == False:
+                origin_image = cv2.equalizeHist(origin_image)
+        kps, features = self.detect_and_describe(origin_image, featureMethod=self.featureMethod)
+        return kps, features
 
-    def imageSetStitch(self, projectAddress, outputAddress, fileNum, caculateOffsetMethod, startNum = 1, fileExtension = "jpg", outputfileExtension = "jpg"):
-        for i in range(startNum, fileNum+1):
-            fileAddress = projectAddress + "\\" + str(i) + "\\"
-            fileList = glob.glob(fileAddress + "*." + fileExtension)
-            if not os.path.exists(outputAddress):
-                os.makedirs(outputAddress)
-            Stitcher.outputAddress = outputAddress
-            (status, result) = self.flowStitch(fileList, caculateOffsetMethod)
-            self.tempImageFeature.isBreak = True
-            cv2.imwrite(outputAddress + "\\stitching_result_" + str(i) + "." + outputfileExtension, result)
-            if status == False:
-                self.printAndWrite("stitching Failed")
 
-    def calculateFrameOffsetForFeatureSearch(self, images):
+    def calculate_offset_by_feature(self, image_address):
         '''
         Stitch two images
         :param images: [imageA, imageB]
         :param registrateMethod: list:
-        :param fuseMethod:
+        :param fuse_method:
         :param direction: stitching direction
         :return:
         '''
-        (imageA, imageB) = images
         offset = [0, 0]
         status = False
-        if self.isEnhance == True:
-            if self.isClahe == True:
-                clahe = cv2.createCLAHE(clipLimit=self.clipLimit, tileGridSize=(self.tileSize, self.tileSize))
-                imageA = clahe.apply(imageA)
-                imageB = clahe.apply(imageB)
-            elif self.isClahe == False:
-                imageA = cv2.equalizeHist(imageA)
-                imageB = cv2.equalizeHist(imageB)
+
         # get the feature points
-        if self.tempImageFeature.isBreak == True:
-            (kpsA, featuresA) = self.detectAndDescribe(imageA, featureMethod=self.featureMethod)
-            (kpsB, featuresB) = self.detectAndDescribe(imageB, featureMethod=self.featureMethod)
-            self.tempImageFeature.isBreak = False
-            self.tempImageFeature.kps = kpsB
-            self.tempImageFeature.feature = featuresB
-        else:
-            kpsA = self.tempImageFeature.kps
-            featuresA = self.tempImageFeature.feature
-            (kpsB, featuresB) = self.detectAndDescribe(imageB, featureMethod=self.featureMethod)
-            self.tempImageFeature.isBreak = False
-            self.tempImageFeature.kps = kpsB
-            self.tempImageFeature.feature = featuresB
+        kpsA = self.last_image_feature.kps
+        featuresA = self.last_image_feature.features
+        imageB = cv2.imdecode(np.fromfile(image_address, dtype=np.uint8), cv2.IMREAD_GRAYSCALE)
+        kpsB, featuresB = self.calculate_feature(imageB)
         if featuresA is not None and featuresB is not None:
-            matches = self.matchDescriptors(featuresA, featuresB)
+            matches = self.match_descriptors(featuresA, featuresB)
             # match all the feature points
             if self.offsetCaculate == "mode":
                 (status, offset) = self.getOffsetByMode(kpsA, kpsB, matches, offsetEvaluate = self.offsetEvaluate)
             elif self.offsetCaculate == "ransac":
                 (status, offset, adjustH) = self.getOffsetByRansac(kpsA, kpsB, matches, offsetEvaluate = self.offsetEvaluate)
-        if status == False:
-            self.tempImageFeature.isBreak = True
-            return (status, "  The two images can not match")
-        elif status == True:
-            self.tempImageFeature.isBreak = False
-            self.printAndWrite("  The offset of stitching: dx is " + str(offset[0]) + " dy is " + str(offset[1]))
-            return (status, offset)
+        if status is True:
+            self.last_image_feature.kps = kpsB
+            self.last_image_feature.features = featuresB
+        return (status, offset)
 
-    def calculateFrameOffsetForFeatureSearchIncre(self, images):
-        '''
-        Stitch two images
-        :param images: [imageA, imageB]
-        :param registrateMethod: list:
-        :param fuseMethod:
-        :param direction: stitching direction
-        :return:
-        '''
 
-        (imageA, imageB) = images
-        offset = [0, 0]
-        status = False
-        maxI = (np.floor(0.5 / self.roiRatio) + 1).astype(int)+ 1
-        iniDirection = self.direction
-        localDirection = iniDirection
-        for i in range(1, maxI):
-            # self.printAndWrite("  i=" + str(i) + " and maxI="+str(maxI))
-            while(True):
-                # get the roi region of images
-                # self.printAndWrite("  localDirection=" + str(localDirection))
-                roiImageA = self.getROIRegionForIncreMethod(imageA, direction=localDirection, order="first", searchRatio = i * self.roiRatio)
-                roiImageB = self.getROIRegionForIncreMethod(imageB, direction=localDirection, order="second", searchRatio = i * self.roiRatio)
+    # def calculateFrameOffsetForFeatureSearchIncre(self, images):
+    #     '''
+    #     Stitch two images
+    #     :param images: [imageA, imageB]
+    #     :param registrateMethod: list:
+    #     :param fuse_method:
+    #     :param direction: stitching direction
+    #     :return:
+    #     '''
+    #
+    #     (imageA, imageB) = images
+    #     offset = [0, 0]
+    #     status = False
+    #     maxI = (np.floor(0.5 / self.roiRatio) + 1).astype(int)+ 1
+    #     iniDirection = self.direction
+    #     localDirection = iniDirection
+    #     for i in range(1, maxI):
+    #         # self.printAndWrite("  i=" + str(i) + " and maxI="+str(maxI))
+    #         while(True):
+    #             # get the roi region of images
+    #             # self.printAndWrite("  localDirection=" + str(localDirection))
+    #             roiImageA = self.getROIRegionForIncreMethod(imageA, direction=localDirection, order="first", searchRatio = i * self.roiRatio)
+    #             roiImageB = self.getROIRegionForIncreMethod(imageB, direction=localDirection, order="second", searchRatio = i * self.roiRatio)
+    #
+    #             if self.isEnhance == True:
+    #                 if self.isClahe == True:
+    #                     clahe = cv2.createCLAHE(clipLimit=self.clipLimit,tileGridSize=(self.tileSize, self.tileSize))
+    #                     roiImageA = clahe.apply(roiImageA)
+    #                     roiImageB = clahe.apply(roiImageB)
+    #                 elif self.isClahe == False:
+    #                     roiImageA = cv2.equalizeHist(roiImageA)
+    #                     roiImageB = cv2.equalizeHist(roiImageB)
+    #             # get the feature points
+    #             kpsA, featuresA = self.detectAndDescribe(roiImageA, featureMethod=self.featureMethod)
+    #             kpsB, featuresB = self.detectAndDescribe(roiImageB, featureMethod=self.featureMethod)
+    #             if featuresA is not None and featuresB is not None:
+    #                 matches = self.matchDescriptors(featuresA, featuresB)
+    #                 # match all the feature points
+    #                 if self.offsetCaculate == "mode":
+    #                     (status, offset) = self.getOffsetByMode(kpsA, kpsB, matches, offsetEvaluate = self.offsetEvaluate)
+    #                 elif self.offsetCaculate == "ransac":
+    #                     (status, offset, adjustH) = self.getOffsetByRansac(kpsA, kpsB, matches, offsetEvaluate = self.offsetEvaluate)
+    #             if status == True:
+    #                 break
+    #             else:
+    #                 localDirection = self.directionIncrease(localDirection)
+    #             if localDirection == iniDirection:
+    #                 break
+    #         if status == True:
+    #             if localDirection == 1:
+    #                 offset[0] = offset[0] + imageA.shape[0] - int(i * self.roiRatio * imageA.shape[0])
+    #             elif localDirection == 2:
+    #                 offset[1] = offset[1] + imageA.shape[1] - int(i * self.roiRatio * imageA.shape[1])
+    #             elif localDirection == 3:
+    #                 offset[0] = offset[0] - (imageB.shape[0] - int(i * self.roiRatio * imageB.shape[0]))
+    #             elif localDirection == 4:
+    #                 offset[1] = offset[1] - (imageB.shape[1] - int(i * self.roiRatio * imageB.shape[1]))
+    #             self.direction = localDirection
+    #             break
+    #     if status == False:
+    #         return (status, "  The two images can not match")
+    #     elif status == True:
+    #         self.printAndWrite("  The offset of stitching: dx is " + str(offset[0]) + " dy is " + str(offset[1]))
+    #         return (status, offset)
 
-                if self.isEnhance == True:
-                    if self.isClahe == True:
-                        clahe = cv2.createCLAHE(clipLimit=self.clipLimit,tileGridSize=(self.tileSize, self.tileSize))
-                        roiImageA = clahe.apply(roiImageA)
-                        roiImageB = clahe.apply(roiImageB)
-                    elif self.isClahe == False:
-                        roiImageA = cv2.equalizeHist(roiImageA)
-                        roiImageB = cv2.equalizeHist(roiImageB)
-                # get the feature points
-                kpsA, featuresA = self.detectAndDescribe(roiImageA, featureMethod=self.featureMethod)
-                kpsB, featuresB = self.detectAndDescribe(roiImageB, featureMethod=self.featureMethod)
-                if featuresA is not None and featuresB is not None:
-                    matches = self.matchDescriptors(featuresA, featuresB)
-                    # match all the feature points
-                    if self.offsetCaculate == "mode":
-                        (status, offset) = self.getOffsetByMode(kpsA, kpsB, matches, offsetEvaluate = self.offsetEvaluate)
-                    elif self.offsetCaculate == "ransac":
-                        (status, offset, adjustH) = self.getOffsetByRansac(kpsA, kpsB, matches, offsetEvaluate = self.offsetEvaluate)
-                if status == True:
-                    break
-                else:
-                    localDirection = self.directionIncrease(localDirection)
-                if localDirection == iniDirection:
-                    break
-            if status == True:
-                if localDirection == 1:
-                    offset[0] = offset[0] + imageA.shape[0] - int(i * self.roiRatio * imageA.shape[0])
-                elif localDirection == 2:
-                    offset[1] = offset[1] + imageA.shape[1] - int(i * self.roiRatio * imageA.shape[1])
-                elif localDirection == 3:
-                    offset[0] = offset[0] - (imageB.shape[0] - int(i * self.roiRatio * imageB.shape[0]))
-                elif localDirection == 4:
-                    offset[1] = offset[1] - (imageB.shape[1] - int(i * self.roiRatio * imageB.shape[1]))
-                self.direction = localDirection
-                break
-        if status == False:
-            return (status, "  The two images can not match")
-        elif status == True:
-            self.printAndWrite("  The offset of stitching: dx is " + str(offset[0]) + " dy is " + str(offset[1]))
-            return (status, offset)
 
-    def getStitchByOffset(self, fileList, offsetListOrigin):
+    def get_stitch_by_offset(self, fileList, is_image_available, offsetListOrigin):
         '''
         通过偏移量列表和文件列表得到最终的拼接结果
         :param fileList: 图像列表
@@ -289,6 +231,8 @@ class Stitcher(Utility.Method):
         rangeY[0][1] = imageList[0].shape[1]
 
         for i in range(1, len(offsetList)):
+            if is_image_available[i] is False:
+                continue
             # self.printAndWrite("  stitching " + str(fileList[i]))
             # 适用于流形拼接的校正,并更新最终图像大小
             # tempImage = cv2.imread(fileList[i], 0)
@@ -322,14 +266,15 @@ class Stitcher(Utility.Method):
                 rangeY[i][1] = resultCol
             imageList.append(tempImage)
         stitchResult = np.zeros((resultRow, resultCol), np.int) - 1
-        self.printAndWrite("  The rectified offsetList is " + str(offsetList))
+        self.print_and_log("  The rectified offsetList is " + str(offsetList))
+
         # 如上算出各个图像相对于原点偏移量，并最终计算出输出图像大小，并构造矩阵，如下开始赋值
         for i in range(0, len(offsetList)):
-            self.printAndWrite("  stitching " + str(fileList[i]))
+            self.print_and_log("  stitching " + str(fileList[i]))
             if i == 0:
                 stitchResult[offsetList[0][0]: offsetList[0][0] + imageList[0].shape[0], offsetList[0][1]: offsetList[0][1] + imageList[0].shape[1]] = imageList[0]
             else:
-                if self.fuseMethod == "notFuse":
+                if self.fuse_method == "notFuse":
                     # 适用于无图像融合，直接覆盖
                     # self.printAndWrite("Stitch " + str(i+1) + "th, the roi_ltx is " + str(offsetList[i][0]) + " and the roi_lty is " + str(offsetList[i][1]))
                     stitchResult[offsetList[i][0]: offsetList[i][0] + imageList[i].shape[0], offsetList[i][1]: offsetList[i][1] + imageList[i].shape[1]] = imageList[i]
@@ -358,6 +303,7 @@ class Stitcher(Utility.Method):
         stitchResult[stitchResult == -1] = 0
         return stitchResult.astype(np.uint8)
 
+
     def fuseImage(self, images, dx, dy):
         (imageA, imageB) = images
         # cv2.namedWindow("A", 0)
@@ -368,39 +314,39 @@ class Stitcher(Utility.Method):
         # imageA[imageA == 0] = imageB[imageA == 0]
         # imageB[imageB == 0] = imageA[imageB == 0]
         imageFusion = ImageFusion.ImageFusion()
-        if self.fuseMethod == "notFuse":
+        if self.fuse_method == "notFuse":
             imageB[imageA == -1] = imageB[imageA == -1]
             imageA[imageB == -1] = imageA[imageB == -1]
             fuseRegion = imageB
-        elif self.fuseMethod == "average":
+        elif self.fuse_method == "average":
             imageA[imageA == 0] = imageB[imageA == 0]
             imageB[imageB == 0] = imageA[imageB == 0]
             imageA[imageA == -1] = 0
             imageB[imageB == -1] = 0
             fuseRegion = imageFusion.fuseByAverage([imageA, imageB])
-        elif self.fuseMethod == "maximum":
+        elif self.fuse_method == "maximum":
             imageA[imageA == 0] = imageB[imageA == 0]
             imageB[imageB == 0] = imageA[imageB == 0]
             imageA[imageA == -1] = 0
             imageB[imageB == -1] = 0
             fuseRegion = imageFusion.fuseByMaximum([imageA, imageB])
-        elif self.fuseMethod == "minimum":
+        elif self.fuse_method == "minimum":
             imageA[imageA == 0] = imageB[imageA == 0]
             imageB[imageB == 0] = imageA[imageB == 0]
             imageA[imageA == -1] = 0
             imageB[imageB == -1] = 0
             fuseRegion = imageFusion.fuseByMinimum([imageA, imageB])
-        elif self.fuseMethod == "fadeInAndFadeOut":
+        elif self.fuse_method == "fadeInAndFadeOut":
             fuseRegion = imageFusion.fuseByFadeInAndFadeOut(images, dx, dy)
-        elif self.fuseMethod == "trigonometric":
+        elif self.fuse_method == "trigonometric":
             fuseRegion = imageFusion.fuseByTrigonometric(images, dx, dy)
-        elif self.fuseMethod == "multiBandBlending":
+        elif self.fuse_method == "multiBandBlending":
             imageA[imageA == 0] = imageB[imageA == 0]
             imageB[imageB == 0] = imageA[imageB == 0]
             imageA[imageA == -1] = 0
             imageB[imageB == -1] = 0
             # imageA = imageA.astye(np.uint8);  imageB = imageB.astye(np.uint8);
             fuseRegion = imageFusion.fuseByMultiBandBlending([imageA, imageB])
-        elif self.fuseMethod == "optimalSeamLine":
+        elif self.fuse_method == "optimalSeamLine":
             fuseRegion = imageFusion.fuseByOptimalSeamLine(images, self.direction)
         return fuseRegion
