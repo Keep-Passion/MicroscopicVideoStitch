@@ -6,181 +6,184 @@ import ImageUtility as Utility
 
 class ImageFusion(Utility.Method):
 
-    def fuseByAverage(self, images):
-        '''
-        均值融合
+    @staticmethod
+    def fuse_by_average(images):
+        """
+        均值融合，取两个重合区域逐像素的均值
         :param images: 输入两个相同区域的图像
         :return:融合后的图像
-        '''
-        (imageA, imageB) = images
+        """
+        (last_image, next_image) = images
         # 由于相加后数值可能溢出，需要转变类型
-        fuseRegion = np.uint8((imageA.astype(int) + imageB.astype(int)) / 2)
-        return fuseRegion
+        fuse_region = np.uint8((last_image.astype(int) + next_image.astype(int)) / 2)
+        return fuse_region
 
-    def fuseByMaximum(self, images):
-        '''
-        最大值融合
+    @staticmethod
+    def fuse_by_maximum(images):
+        """
+        最大值融合,取两个重合区域逐像素的最大值
         :param images: 输入两个相同区域的图像
         :return:融合后的图像
-        '''
-        (imageA, imageB) = images
-        fuseRegion = np.maximum(imageA, imageB)
-        return fuseRegion
+        """
+        (last_image, next_image) = images
+        fuse_region = np.maximum(last_image, next_image)
+        return fuse_region
 
-    def fuseByMinimum(self, images):
-        '''
-        最小值融合
+    @staticmethod
+    def fuse_by_minimum(images):
+        """
+        最小值融合,取两个重合区域逐像素的最小值
         :param images: 输入两个相同区域的图像
         :return:融合后的图像
-        '''
-        (imageA, imageB) = images
-        fuseRegion = np.minimum(imageA, imageB)
-        return fuseRegion
-    
-    def getWeightsMatrix(self, images):
-        '''
+        """
+        (last_image, next_image) = images
+        fuse_region = np.minimum(last_image, next_image)
+        return fuse_region
+
+    @staticmethod
+    def get_weights_matrix(images):
+        """
         获取权值矩阵
         :param images: 带融合两幅图像
-        :return: weigthA,weightB
-        '''
-        (imageA, imageB) = images
-        weightMatA = np.ones(imageA.shape, dtype=np.float32)
-        weightMatB = np.ones(imageA.shape, dtype=np.float32)
-        row, col = imageA.shape[:2]
-        weightMatB_1 = weightMatB.copy()
-        weightMatB_2 = weightMatB.copy()
+        :return: last_weight_mat,next_weight_mat
+        """
+        (last_image, next_image) = images
+        last_weight_mat = np.ones(last_image.shape, dtype=np.float32)
+        next_weight_mat = np.ones(next_image.shape, dtype=np.float32)
+        row, col = last_image.shape[:2]
+        next_weight_mat_1 = next_weight_mat.copy()
+        next_weight_mat_2 = next_weight_mat.copy()
         # 获取四条线的相加和，判断属于哪种模式
-        compareList = []
-        compareList.append(np.count_nonzero(imageA[0: row // 2, 0: col // 2] > 0))
-        compareList.append(np.count_nonzero(imageA[row // 2: row, 0: col // 2] > 0))
-        compareList.append(np.count_nonzero(imageA[row // 2: row, col // 2: col] > 0))
-        compareList.append(np.count_nonzero(imageA[0: row // 2, col // 2: col] > 0))
-        # self.printAndWrite("    compareList:" + str(compareList))
-        index = compareList.index(min(compareList))
+        compare_list = [np.count_nonzero(last_image[0: row // 2, 0: col // 2] > 0),
+                        np.count_nonzero(last_image[row // 2: row, 0: col // 2] > 0),
+                        np.count_nonzero(last_image[row // 2: row, col // 2: col] > 0),
+                        np.count_nonzero(last_image[0: row // 2, col // 2: col] > 0)]
+        index = compare_list.index(min(compare_list))
         if index == 2:
             # 重合区域在imageA的上左部分
             # self.printAndWrite("上左")
-            rowIndex = 0;   colIndex = 0;
+            row_index = 0
+            col_index = 0
             for j in range(1, col):
                 for i in range(row - 1, -1, -1):
-                    if imageA[i, col - j] != -1:
-                        rowIndex = i + 1
+                    if last_image[i, col - j] != -1:
+                        row_index = i + 1
                         break
-                if rowIndex != 0:
+                if row_index != 0:
                     break
             for i in range(col - 1, -1, -1):
-                if imageA[rowIndex, i] != -1:
-                    colIndex = i + 1
+                if last_image[row_index, i] != -1:
+                    col_index = i + 1
                     break
             # 赋值
-            for i in range(rowIndex + 1):
-                if rowIndex == 0:
-                    rowIndex = 1
-                weightMatB_1[rowIndex - i, :] = (rowIndex - i) * 1 / rowIndex
-            for i in range(colIndex + 1):
-                if colIndex == 0:
-                    colIndex = 1
-                weightMatB_2[:, colIndex - i] = (colIndex - i) * 1 / colIndex
-            weightMatB = weightMatB_1 * weightMatB_2
-            weightMatA = 1 - weightMatB
-        #elif leftCenter != 0 and bottomCenter != 0 and upCenter == 0 and rightCenter == 0:
+            for i in range(row_index + 1):
+                if row_index == 0:
+                    row_index = 1
+                next_weight_mat_1[row_index - i, :] = (row_index - i) * 1 / row_index
+            for i in range(col_index + 1):
+                if col_index == 0:
+                    col_index = 1
+                next_weight_mat_2[:, col_index - i] = (col_index - i) * 1 / col_index
+            next_weight_mat = next_weight_mat_1 * next_weight_mat_2
+            last_weight_mat = 1 - next_weight_mat
+        # elif leftCenter != 0 and bottomCenter != 0 and upCenter == 0 and rightCenter == 0:
         elif index == 3:
             # 重合区域在imageA的下左部分
             # self.printAndWrite("下左")
-            rowIndex = 0;       colIndex = 0;
+            row_index = 0
+            col_index = 0
             for j in range(1, col):
                 for i in range(row):
-                    if imageA[i, col - j] != -1:
-                        rowIndex = i - 1
+                    if last_image[i, col - j] != -1:
+                        row_index = i - 1
                         break
-                if rowIndex != 0:
+                if row_index != 0:
                     break
             for i in range(col - 1, -1, -1):
-                if imageA[rowIndex, i] != -1:
-                    colIndex = i + 1
+                if last_image[row_index, i] != -1:
+                    col_index = i + 1
                     break
             # 赋值
-            for i in range(rowIndex, row):
-                if rowIndex == 0:
-                    rowIndex = 1
-                weightMatB_1[i, :] = (row - i - 1) * 1 / (row - rowIndex - 1)
-            for i in range(colIndex + 1):
-                if colIndex == 0:
-                    colIndex = 1
-                weightMatB_2[:, colIndex - i] = (colIndex - i) * 1 / colIndex
-            weightMatB = weightMatB_1 * weightMatB_2
-            weightMatA = 1 - weightMatB
+            for i in range(row_index, row):
+                if row_index == 0:
+                    row_index = 1
+                next_weight_mat_1[i, :] = (row - i - 1) * 1 / (row - row_index - 1)
+            for i in range(col_index + 1):
+                if col_index == 0:
+                    col_index = 1
+                next_weight_mat_2[:, col_index - i] = (col_index - i) * 1 / col_index
+            next_weight_mat = next_weight_mat_1 * next_weight_mat_2
+            last_weight_mat = 1 - next_weight_mat
         # elif rightCenter != 0 and bottomCenter != 0 and upCenter == 0 and leftCenter == 0:
         elif index == 0:
             # 重合区域在imageA的下右部分
-            # self.printAndWrite("下右")
-            rowIndex = 0;
-            colIndex = 0;
+            row_index = 0
+            col_index = 0
             for j in range(0, col):
                 for i in range(row):
-                    if imageA[i, j] != -1:
-                        rowIndex = i - 1
+                    if last_image[i, j] != -1:
+                        row_index = i - 1
                         break
-                if rowIndex != 0:
+                if row_index != 0:
                     break
             for i in range(col):
-                if imageA[rowIndex, i] != -1:
-                    colIndex = i - 1
+                if last_image[row_index, i] != -1:
+                    col_index = i - 1
                     break
             # 赋值
-            for i in range(rowIndex, row):
-                if rowIndex == 0:
-                    rowIndex = 1
-                weightMatB_1[i, :] = (row - i - 1) * 1 / (row - rowIndex - 1)
-            for i in range(colIndex, col):
-                if colIndex == 0:
-                    colIndex = 1
-                weightMatB_2[:, i] = (col - i - 1) * 1 / (col - colIndex - 1)
-            weightMatB = weightMatB_1 * weightMatB_2
-            weightMatA = 1 - weightMatB
+            for i in range(row_index, row):
+                if row_index == 0:
+                    row_index = 1
+                next_weight_mat_1[i, :] = (row - i - 1) * 1 / (row - row_index - 1)
+            for i in range(col_index, col):
+                if col_index == 0:
+                    col_index = 1
+                next_weight_mat_2[:, i] = (col - i - 1) * 1 / (col - col_index - 1)
+            next_weight_mat = next_weight_mat_1 * next_weight_mat_2
+            last_weight_mat = 1 - next_weight_mat
         # elif upCenter != 0 and rightCenter != 0 and leftCenter == 0 and bottomCenter == 0:
         elif index == 1:
             # 重合区域在imageA的上右部分
             # self.printAndWrite("上右")
-            rowIndex = 0;   colIndex = 0;
+            row_index = 0
+            col_index = 0
             for j in range(0, col):
                 for i in range(row - 1, -1, -1):
-                    if imageA[i, j] != -1:
-                        rowIndex = i + 1
+                    if last_image[i, j] != -1:
+                        row_index = i + 1
                         break
-                if rowIndex != 0:
+                if row_index != 0:
                     break
             for i in range(col):
-                if imageA[rowIndex, i] != -1:
-                    colIndex = i - 1
+                if last_image[row_index, i] != -1:
+                    col_index = i - 1
                     break
-            for i in range(rowIndex + 1):
-                if rowIndex == 0:
-                    rowIndex = 1
-                weightMatB_1[rowIndex - i, :] = (rowIndex - i) * 1 / rowIndex
-            for i in range(colIndex, col):
-                if colIndex == 0:
-                    colIndex = 1
-                weightMatB_2[:, i] = (col - i - 1) * 1 / (col - colIndex - 1)
-            weightMatB = weightMatB_1 * weightMatB_2
-            weightMatA = 1 - weightMatB
-        # print(weightMatA)
-        # print(weightMatB)
-        return (weightMatA, weightMatB)
+            for i in range(row_index + 1):
+                if row_index == 0:
+                    row_index = 1
+                next_weight_mat_1[row_index - i, :] = (row_index - i) * 1 / row_index
+            for i in range(col_index, col):
+                if col_index == 0:
+                    col_index = 1
+                next_weight_mat_2[:, i] = (col - i - 1) * 1 / (col - col_index - 1)
+            next_weight_mat = next_weight_mat_1 * next_weight_mat_2
+            last_weight_mat = 1 - next_weight_mat
+        return last_weight_mat, next_weight_mat
 
-    def fuseByFadeInAndFadeOut(self, images, dx, dy):
-        '''
+    def fuse_by_fade_in_and_fade_out(self, images, dx, dy):
+        """
         渐入渐出融合
         :param images:输入两个相同区域的图像
-        :param direction: 横向拼接还是纵向拼接
+        :param dx: 第二张图像相对于第一张图像原点在x方向上的位移
+        :param dy: 第二张图像相对于第一张图像原点在y方向上的位移
         :return:融合后的图像
-        '''
-        (imageA, imageB) = images
-        row, col = imageA.shape[:2]
-        weightMatA = np.ones(imageA.shape, dtype=np.float32)
-        weightMatB = np.ones(imageA.shape, dtype=np.float32)
+        """
+        (last_image, next_image) = images
+        row, col = last_image.shape[:2]
+        last_weight_mat = np.ones(last_image.shape, dtype=np.float32)
+        next_weight_mat = np.ones(next_image.shape, dtype=np.float32)
         # self.printAndWrite("    ratio: "  + str(np.count_nonzero(imageA > -1) / imageA.size))
-        if np.count_nonzero(imageA > -1) / imageA.size > 0.65:
+        if np.count_nonzero(last_image > -1) / last_image.size > 0.65:
             # 如果对于imageA中，非0值占比例比较大，则认为是普通融合
             # 根据区域的行列大小来判断，如果行数大于列数，是水平方向
             if col <= row:
@@ -188,251 +191,177 @@ class ImageFusion(Utility.Method):
                 for i in range(0, col):
                     # print(dy)
                     if dy >= 0:
-                        weightMatA[:, i] = weightMatA[:, i] * i * 1.0 / col
-                        weightMatB[:, col - i - 1] = weightMatB[:, col - i - 1] * i * 1.0 / col
+                        last_weight_mat[:, i] = last_weight_mat[:, i] * i * 1.0 / col
+                        next_weight_mat[:, col - i - 1] = next_weight_mat[:, col - i - 1] * i * 1.0 / col
                     elif dy < 0:
-                        weightMatA[:, i] = weightMatA[:, i] * (col - i) * 1.0 / col
-                        weightMatB[:, col - i - 1] = weightMatB[:, col - i - 1] * (col - i) * 1.0 / col
+                        last_weight_mat[:, i] = last_weight_mat[:, i] * (col - i) * 1.0 / col
+                        next_weight_mat[:, col - i - 1] = next_weight_mat[:, col - i - 1] * (col - i) * 1.0 / col
             # 根据区域的行列大小来判断，如果列数大于行数，是竖直方向
             elif row < col:
                 # self.printAndWrite("普通融合-竖直方向")
                 for i in range(0, row):
                     if dx <= 0:
-                        weightMatA[i, :] = weightMatA[i, :] * i * 1.0 / row
-                        weightMatB[row - i - 1, :] = weightMatB[row - i - 1, :] * i * 1.0 / row
+                        last_weight_mat[i, :] = last_weight_mat[i, :] * i * 1.0 / row
+                        next_weight_mat[row - i - 1, :] = next_weight_mat[row - i - 1, :] * i * 1.0 / row
                     elif dx > 0:
-                        weightMatA[i, :] = weightMatA[i, :] * (row - i) * 1.0 / row
-                        weightMatB[row - i - 1, :] = weightMatB[row - i - 1, :] * (row - i) * 1.0 / row
+                        last_weight_mat[i, :] = last_weight_mat[i, :] * (row - i) * 1.0 / row
+                        next_weight_mat[row - i - 1, :] = next_weight_mat[row - i - 1, :] * (row - i) * 1.0 / row
         else:
             # 如果对于imageA中，非0值占比例比较小，则认为是拐角融合
             # self.printAndWrite("拐角融合")
-            weightMatA, weightMatB = self.getWeightsMatrix(images)
-        imageA[imageA == -1] = 0;   imageB[imageB == -1] =0;
-        result = weightMatA * imageA.astype(np.int) + weightMatB * imageB.astype(np.int)
-        result[result < 0] = 0;     result[result > 255] = 255
-        fuseRegion = np.uint8(result)
-        return fuseRegion
+            last_weight_mat, next_weight_mat = self.get_weights_matrix(images)
+        last_image[last_image == -1] = 0
+        next_image[next_image == -1] = 0
+        result = last_weight_mat * last_image.astype(np.int) + next_weight_mat * next_image.astype(np.int)
+        result[result < 0] = 0
+        result[result > 255] = 255
+        fuse_region = np.uint8(result)
+        return fuse_region
 
-    def fuseByTrigonometric(self, images, dx, dy):
-        '''
+    def fuse_by_trigonometric(self, images, dx, dy):
+        """
         三角函数融合
         引用自《一种三角函数权重的图像拼接算法》知网
         :param images:输入两个相同区域的图像
-        :param direction: 横向拼接还是纵向拼接
+        :param dx: 第二张图像相对于第一张图像原点在x方向上的位移
+        :param dy: 第二张图像相对于第一张图像原点在y方向上的位移
         :return:融合后的图像
-        '''
-        (imageA, imageB) = images
-        row, col = imageA.shape[:2]
-        weightMatA = np.ones(imageA.shape, dtype=np.float64)
-        weightMatB = np.ones(imageA.shape, dtype=np.float64)
-        # self.printAndWrite("    ratio: " + str(np.count_nonzero(imageA > -1) / imageA.size))
-        if np.count_nonzero(imageA > -1) / imageA.size > 0.65:
+        """
+        (last_image, next_image) = images
+        row, col = last_image.shape[:2]
+        last_weight_mat = np.ones(last_image.shape, dtype=np.float64)
+        next_weight_mat = np.ones(next_image.shape, dtype=np.float64)
+        if np.count_nonzero(last_image > -1) / last_image.size > 0.65:
             # 如果对于imageA中，非0值占比例比较大，则认为是普通融合
             # 根据区域的行列大小来判断，如果行数大于列数，是水平方向
             if col <= row:
                 # self.printAndWrite("普通融合-水平方向")
                 for i in range(0, col):
                     if dy >= 0:
-                        weightMatA[:, i] = weightMatA[:, i] * i * 1.0 / col
-                        weightMatB[:, col - i - 1] = weightMatB[:, col - i - 1] * i * 1.0 / col
+                        last_weight_mat[:, i] = last_weight_mat[:, i] * i * 1.0 / col
+                        next_weight_mat[:, col - i - 1] = next_weight_mat[:, col - i - 1] * i * 1.0 / col
                     elif dy < 0:
-                        weightMatA[:, i] = weightMatA[:, i] * (col - i) * 1.0 / col
-                        weightMatB[:, col - i - 1] = weightMatB[:, col - i - 1] * (col - i) * 1.0 / col
+                        last_weight_mat[:, i] = last_weight_mat[:, i] * (col - i) * 1.0 / col
+                        next_weight_mat[:, col - i - 1] = next_weight_mat[:, col - i - 1] * (col - i) * 1.0 / col
             # 根据区域的行列大小来判断，如果列数大于行数，是竖直方向
             elif row < col:
                 # self.printAndWrite("普通融合-竖直方向")
                 for i in range(0, row):
                     if dx <= 0:
-                        weightMatA[i, :] = weightMatA[i, :] * i * 1.0 / row
-                        weightMatB[row - i - 1, :] = weightMatB[row - i - 1, :] * i * 1.0 / row
+                        last_weight_mat[i, :] = last_weight_mat[i, :] * i * 1.0 / row
+                        next_weight_mat[row - i - 1, :] = next_weight_mat[row - i - 1, :] * i * 1.0 / row
                     elif dx > 0:
-                        weightMatA[i, :] = weightMatA[i, :] * (row - i) * 1.0 / row
-                        weightMatB[row - i - 1, :] = weightMatB[row - i - 1, :] * (row - i) * 1.0 / row
+                        last_weight_mat[i, :] = last_weight_mat[i, :] * (row - i) * 1.0 / row
+                        next_weight_mat[row - i - 1, :] = next_weight_mat[row - i - 1, :] * (row - i) * 1.0 / row
         else:
             # 如果对于imageA中，非0值占比例比较小，则认为是拐角融合
             # self.printAndWrite("拐角融合")
-            weightMatA, weightMatB = self.getWeightsMatrix(images)
+            last_weight_mat, next_weight_mat = self.get_weights_matrix(images)
 
-        weightMatA = np.power(np.sin(weightMatA * math.pi / 2), 2)
-        weightMatB = 1 - weightMatA
+        last_weight_mat = np.power(np.sin(last_weight_mat * math.pi / 2), 2)
+        next_weight_mat = 1 - last_weight_mat
 
-        imageA[imageA == -1] = 0;   imageB[imageB == -1] =0;
-        result = weightMatA * imageA.astype(np.int) + weightMatB * imageB.astype(np.int)
-        result[result < 0] = 0;     result[result > 255] = 255
-        fuseRegion = np.uint8(result)
-        return fuseRegion
+        last_image[last_image == -1] = 0
+        next_image[next_image == -1] = 0
+        result = last_weight_mat * last_image.astype(np.int) + next_weight_mat * next_image.astype(np.int)
+        result[result < 0] = 0
+        result[result > 255] = 255
+        fuse_region = np.uint8(result)
+        return fuse_region
 
-    def fuseByMultiBandBlending(self, images):
-        (imageA, imageB) = images
-        imagesReturn = np.uint8(self.BlendArbitrary2(imageA, imageB, 4))
-        return imagesReturn
+    pyramid_level = 4
 
-    # 带权拉普拉斯金字塔融合
-    def BlendArbitrary(self, img1, img2, R, level):
-        # img1 and img2 have the same size
-        # R represents the region to be combined
-        # level is the expected number of levels in the pyramid
+    def fuse_by_multi_band_blending(self, images):
+        """
+        多分辨率样条融合,重合区域逐像素各取权重0.5，然后使用拉普拉斯金字塔融合
+        引用自：《A Multiresolution Spline With Application to Image Mosaics》
+        :param images: 输入两个相同区域的图像
+        :return: 融合后的图像
+        """
+        (last_image, next_image) = images
+        last_lp, last_gp = self.get_laplacian_pyramid(last_image)
+        next_lp, next_gp = self.get_laplacian_pyramid(next_image)
+        fuse_lp = []
+        for i in range(self.pyramid_level):
+            fuse_lp.append(last_lp[i] * 0.5 + next_lp[i] * 0.5)
+        fuse_region = np.uint8(self.reconstruct(fuse_lp))
+        return fuse_region
 
-        LA, GA = self.LaplacianPyramid(img1, level)
-        LB, GB = self.LaplacianPyramid(img2, level)
-        GR = self.GaussianPyramid(R, level)
-        GRN = []
-        for i in range(level):
-            GRN.append(np.ones((GR[i].shape[0], GR[i].shape[1])) - GR[i])
-        LC = []
-        for i in range(level):
-            LC.append(LA[i] * GR[level - i -1] + LB[i] * GRN[level - i - 1])
-        result = self.reconstruct(LC)
-        return  result
+    # block_size = 4
+    #
+    # def fuse_by_spatial_frequency(self, images):
+    #     """
+    #     空间频率滤波融合
+    #     引用自：《Combination of images with diverse focuses using the spatial frequency》
+    #     :param images:输入两个相同区域的图像
+    #     :return:融合后的图像
+    #     """
+    #     (last_image, next_image) = images
+    #     pass
 
-    # 均值融合
-    def BlendArbitrary2(self, img1, img2, level):
-        # img1 and img2 have the same size
-        # R represents the region to be combined
-        # level is the expected number of levels in the pyramid
-        LA, GA = self.LaplacianPyramid(img1, level)
-        LB, GB = self.LaplacianPyramid(img2, level)
-        LC = []
-        for i in range(level):
-            LC.append(LA[i] * 0.5 + LB[i] * 0.5)
-        result = self.reconstruct(LC)
-        return result
+    # def BlendArbitrary(self, img1, img2, R, level):
+    #     # img1 and img2 have the same size
+    #     # R represents the region to be combined
+    #     # level is the expected number of levels in the pyramid
+    #
+    #     LA, GA = self.get_laplacian_pyramid(img1)
+    #     LB, GB = self.get_laplacian_pyramid(img2)
+    #     GR = self.get_gaussian_pyramid(R)
+    #     GRN = []
+    #     for i in range(level):
+    #         GRN.append(np.ones((GR[i].shape[0], GR[i].shape[1])) - GR[i])
+    #     LC = []
+    #     for i in range(level):
+    #         LC.append(LA[i] * GR[level - i - 1] + LB[i] * GRN[level - i - 1])
+    #     result = self.reconstruct(LC)
+    #     return result
 
-    def LaplacianPyramid(self, img, level):
-        gp = self.GaussianPyramid(img, level)
-        lp = [gp[level-1]]
-        for i in range(level - 1, -1, -1):
-            GE = cv2.pyrUp(gp[i])
-            GE = cv2.resize(GE, (gp[i - 1].shape[1], gp[i - 1].shape[0]), interpolation=cv2.INTER_CUBIC)
-            L = cv2.subtract(gp[i - 1], GE)
-            lp.append(L)
-        return lp, gp
+    # # 权值矩阵归一化
+    # def normalize_weight_mat(self, weight_mat):
+    #     min_value = weight_mat.min()
+    #     max_value = weight_mat.max()
+    #     out = (weight_mat - min_value) / (max_value - min_value) * 255
+    #     return out
 
-    def reconstruct(self, input_pyramid):
-        out = input_pyramid[0]
-        for i in range(1, len(input_pyramid)):
-            out = cv2.pyrUp(out)
-            out = cv2.resize(out, (input_pyramid[i].shape[1],input_pyramid[i].shape[0]), interpolation = cv2.INTER_CUBIC)
-            out = cv2.add(out, input_pyramid[i])
-        return out
-
-    def GaussianPyramid(self, R, level):
-        G = R.copy().astype(np.float64)
-        gp = [G]                        # 金字塔结构存到list中
-        for i in range(level):
-            G = cv2.pyrDown(G)
-            gp.append(G)
+    def get_gaussian_pyramid(self, input_image):
+        """
+        获得图像的高斯金字塔
+        :param input_image:输入图像
+        :return: 高斯金字塔，以list形式返回，第一个是原图，以此类推
+        """
+        g = input_image.copy().astype(np.float64)
+        gp = [g]  # 金字塔结构存到list中
+        for i in range(self.pyramid_level):
+            g = cv2.pyrDown(g)
+            gp.append(g)
         return gp
 
-    #权值矩阵归一化
-    def stretchImage(self, Region):
-        minI = Region.min()
-        maxI = Region.max()
-        out = (Region - minI) / (maxI - minI) * 255
-        return out
+    def get_laplacian_pyramid(self, input_image):
+        """
+        求一张图像的拉普拉斯金字塔
+        :param input_image: 输入图像
+        :return: 拉普拉斯金字塔(laplacian_pyramid, lp, 从小到大)，高斯金字塔(gaussian_pyramid, gp,从大到小),
+                  均以list形式
+        """
+        gp = self.get_gaussian_pyramid(input_image)
+        lp = [gp[self.pyramid_level - 1]]
+        for i in range(self.pyramid_level - 1, -1, -1):
+            ge = cv2.pyrUp(gp[i])
+            ge = cv2.resize(ge, (gp[i - 1].shape[1], gp[i - 1].shape[0]), interpolation=cv2.INTER_CUBIC)
+            lp.append(cv2.subtract(gp[i - 1], ge))
+        return lp, gp
 
-    # OptialSeamLine's method
-    def fuseByOptimalSeamLine(self, images, direction="horizontal"):
-        '''
-        基于最佳缝合线的融合方法
-        :param images:输入两个相同区域的图像
-        :param direction: 横向拼接还是纵向拼接
-        :return:融合后的图像
-        '''
-        (imageA, imageB) = images
-        cv2.imshow("imageA", imageA)
-        cv2.imshow("imageB", imageB)
-        cv2.waitKey(0)
-        value = self.caculateVaule(images)
-        # print(value)
-        mask = 1 - self.findOptimalSeamLine(value, direction)
-        # cv2.namedWindow("mask", 0)
-        # cv2.imshow("mask", (mask*255).astype(np.uint8))
-        # cv2.waitKey(0)
-        fuseRegion = imageA.copy()
-        fuseRegion[(1 - mask) == 0] = imageA[(1 - mask) == 0]
-        fuseRegion[(1 - mask) == 1] = imageB[(1 - mask) == 1]
-        drawFuseRegion = self.drawOptimalLine(1- mask, fuseRegion)
-        cv2.imwrite("optimalLine.jpg", drawFuseRegion)
-        cv2.imwrite("fuseRegion.jpg", np.uint8(self.BlendArbitrary(imageA,imageB, mask, 4)))
-        cv2.waitKey(0)
-        return np.uint8(self.BlendArbitrary(imageA,imageB, mask, 4))
-
-    def caculateVaule(self, images):
-        (imageA, imageB) = images
-        row, col = imageA.shape[:2]
-        # value = np.zeros(imageA.shape, dtype=np.float32)
-        Ecolor = (imageA - imageB).astype(np.float32)
-        Sx = np.array([[-2, 0, 2],
-                       [-1, 0, 1],
-                       [-2, 0, 2]])
-        Sy = np.array([[-2, -1, -2],
-                       [ 0,  0,  0],
-                       [ 2,  1,  2]])
-        Egeometry = np.power(cv2.filter2D(Ecolor, -1, Sx), 2) + np.power(cv2.filter2D(Ecolor, -1, Sy), 2)
-
-        diff = np.abs(imageA - imageB) / np.maximum(imageA, imageB).max()
-        diffMax = np.amax(diff)
-
-        infinet = 10000
-        W = 10
-        for i in range(0, row):
-            for j in range(0, col):
-                if diff[i, j] < 0.7 * diffMax:
-                    diff[i, j] = W * diff[i, j] / diffMax
-                else:
-                    diff[i, j] = infinet
-        value = diff * (np.power(Ecolor, 2) + Egeometry)
-        return value
-
-    def findOptimalSeamLine(self, value, direction="horizontal"):
-        if direction == "vertical":
-            value = np.transpose(value)
-        row, col = value.shape[:2]
-        indexMatrix = np.zeros(value.shape, dtype=np.int)
-        dpMatrix = np.zeros(value.shape, dtype=np.float32)
-        mask = np.zeros(value.shape, dtype=np.uint8)
-
-        dpMatrix[0, :] = value[0, :]
-        indexMatrix[0, :] = indexMatrix[0, :] - 1
-        for i in range(1, row):
-            for j in range(0, col):
-                if j == 0:
-                    dpMatrix[i, j] = (np.array([dpMatrix[i - 1, j], dpMatrix[i - 1, j + 1]]) + value[i, j]).min()
-                    indexMatrix[i, j] = (np.array([dpMatrix[i - 1, j], dpMatrix[i - 1, j + 1]]) + value[i, j]).argmin()
-                    # print("last=" + str(np.array([dpMatrix[i - 1, j], dpMatrix[i - 1, j + 1]])))
-                    # print("this=" + str(value[i, j]))
-                    # print(dpMatrix[i, j])
-                    # print(indexMatrix[i, j])
-                elif j == col - 1:
-                    dpMatrix[i, j] = (np.array([dpMatrix[i - 1, j - 1], dpMatrix[i - 1, j]]) + value[i, j]).min()
-                    indexMatrix[i, j] = (np.array([dpMatrix[i - 1, j - 1], dpMatrix[i - 1, j]]) + value[i, j]).argmin() - 1
-                else:
-                    dpMatrix[i, j] = (np.array([dpMatrix[i - 1, j - 1], dpMatrix[i - 1, j], dpMatrix[i - 1, j + 1]]) + value[i, j]).min()
-                    indexMatrix[i, j] = (np.array([dpMatrix[i - 1, j - 1], dpMatrix[i - 1, j], dpMatrix[i - 1, j + 1]]) + value[i, j]).argmin() - 1
-        # print(indexMatrix)
-        # generate the mask
-        index = dpMatrix[row - 1, :].argmin()
-        # print("here" + str(dpMatrix[row - 1, :]))
-        # print(index)
-        for j in range(index, col):
-            mask[row-1, j] = 1
-        for i in range(row - 1, 1, -1):
-            index = indexMatrix[i, index] + index
-            # print(index)
-            for j in range(index, col):
-                mask[i-1, j] = 1
-        if direction == "vertical":
-            mask = np.transpose(mask)
-        return mask
-
-    def drawOptimalLine(self, mask, fuseRegion):
-        row, col = mask.shape[:2]
-        drawing = np.zeros([row, col, 3], dtype=np.uint8)
-        drawing = cv2.cvtColor(fuseRegion, cv2.COLOR_GRAY2BGR)
-        for j in range(0, col):
-            for i in range(0, row):
-                if mask[i, j] == 1:
-                    drawing[i, j] = np.array([0, 0, 255])
-                    break
-        return drawing
+    @staticmethod
+    def reconstruct(input_pyramid):
+        """
+        根据拉普拉斯金字塔重构图像，该list第一个是最小的原图，后面是更大的拉普拉斯表示
+        :param input_pyramid: 输入的金字塔
+        :return: 返回重构的结果图
+        """
+        construct_result = input_pyramid[0]
+        for i in range(1, len(input_pyramid)):
+            construct_result = cv2.pyrUp(construct_result)
+            construct_result = cv2.resize(construct_result, (input_pyramid[i].shape[1], input_pyramid[i].shape[0]),
+                                          interpolation=cv2.INTER_CUBIC)
+            construct_result = cv2.add(construct_result, input_pyramid[i])
+        return construct_result
