@@ -85,6 +85,8 @@ class VideoStitch(Utility.Method):
         self.print_and_log("Sampling rate:" + str(self.sample_rate))
         self.print_and_log("We save sampling images in " + sample_dir)
         self.print_and_log("Sampling images ...")
+
+        # 解压文件时有可能会得到无法解压的错误，需要在工程中注意
         cap = cv2.VideoCapture(self.video_address)
         frame_num = 0
         save_num = 0
