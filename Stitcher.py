@@ -21,7 +21,7 @@ class VideoStitch(Utility.Method):
     视频拼接类
     """
     def __init__(self, video_address, fuse_method="notFuse", sample_rate=1,
-                 roi_ratio=0.2, feature_method="sift", search_ratio=0.75):
+                 roi_ratio=0.2, feature_method="surf", search_ratio=0.75):
         # 关于录入文件的设置
         self.video_address = video_address
         self.input_dir = os.path.dirname(self.video_address)
