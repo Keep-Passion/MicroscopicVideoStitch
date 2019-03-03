@@ -5,7 +5,7 @@ import skimage.measure
 
 class Method:
     # 关于 GPU 加速的设置
-    is_gpu_available = True
+    is_gpu_available = False
 
     # 关于打印信息的设置
     input_dir = ""
@@ -59,20 +59,22 @@ class Method:
         height, width, depth = source_image.shape
         fps = 16
         self.make_out_dir(output_dir)
-        # video_writer = cv2.VideoWriter(os.path.join(output_dir, "output_video.avi"),
-        #                               cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'), fps, (width,width))
-        video_writer = cv2.VideoWriter(os.path.join(output_dir, "test_video.avi"),
-                                       cv2.VideoWriter_fourcc(*'XVID'), fps, (width, width))
+        # video_writer = cv2.VideoWriter(os.path.join(output_dir, "test_video.avi"),
+        #                                cv2.VideoWriter_fourcc(*'XVID'), fps, (width, width))
         # video_writer = cv2.VideoWriter(os.path.join(output_dir, "test_video.avi"),
         #                                cv2.VideoWriter_fourcc('I', '4', '2', '0'), fps, (width, width))
-        # video_writer = cv2.VideoWriter(os.path.join(output_dir, "test_video.avi"),
-        #                                cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'), fps, (width, width))
+        video_writer = cv2.VideoWriter(os.path.join(output_dir, "test_video.avi"),
+                                       cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'), fps, (width, width))
         print("Video setting: fps is {} and the frame size is {}".format(fps, (width, width)))
         print("Start converting")
-        for row_index in range(0, height - width):
+        row_index = 0
+        while True:
+            if row_index + width > height:
+                break
             image_temp = source_image[row_index: row_index + width, :, :]
             video_writer.write(image_temp)
             print("The {}th frame with shape of {}".format(row_index + 1, image_temp.shape))
+            row_index = row_index + 1
         video_writer.release()
         print("Convert end")
 
@@ -83,7 +85,6 @@ class Method:
         psnr_score = skimage.measure.compare_psnr(stitch_image, gt_image)
         ssim_score = skimage.measure.compare_ssim(stitch_image, gt_image)
         print(" The mse is {}, psnr is {}, ssim is {}".format(mse_score, psnr_score, ssim_score))
-
 
 
 if __name__ == "__main__":

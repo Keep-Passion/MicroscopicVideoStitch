@@ -8,13 +8,13 @@ if __name__ == "__main__":
     gt_image = cv2.imread("D:\\Coding_Test\\Python\\MicroscopicVideoStitch\\stitching_by_human.jpg", 0)
     video_address = os.path.join(os.path.join(project_address, "videos"), "test_video.avi")
 
-    # fuse_method = "notFuse"
+    fuse_method = "notFuse"
     # fuse_method = "average"
     # fuse_method = "maximum"
     # fuse_method = "minimum"
     # fuse_method = "fadeInAndFadeOut"
     # fuse_method = "trigonometric"
-    fuse_method = "multiBandBlending"
+    # fuse_method = "multiBandBlending"
 
     stitcher = Stitcher.VideoStitch(video_address, fuse_method=fuse_method)
     start_time = time.time()
@@ -22,4 +22,5 @@ if __name__ == "__main__":
     end_time = time.time()
     stitcher.print_and_log("The total time of video stitching is {:.3f} \'s".format(end_time - start_time))
     cv2.imwrite("stitching_by_video.jpg", stitch_image)
+    # justified_stitch_image = stitcher.justify_result_shape(stitch_image, gt_image)
     stitcher.compare_result_gt(stitch_image, gt_image)

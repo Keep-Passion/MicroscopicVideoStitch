@@ -21,7 +21,7 @@ class VideoStitch(Utility.Method):
     视频拼接类
     """
     def __init__(self, video_address, fuse_method="notFuse", sample_rate=1,
-                 roi_ratio=0.2, feature_method="surf", search_ratio=0.75):
+                 roi_ratio=1, feature_method="sift", search_ratio=0.75):
         # 关于录入文件的设置
         self.video_address = video_address
         self.input_dir = os.path.dirname(self.video_address)
@@ -45,7 +45,7 @@ class VideoStitch(Utility.Method):
 
         # 关于特征配准的设置
         self.offset_calculate = "mode"  # "mode" or "ransac"
-        self.offset_evaluate = 3  # 40 menas nums of matches for mode, 3.0 menas  of matches for ransac
+        self.offset_evaluate = 5  # 40 menas nums of matches for mode, 3.0 menas  of matches for ransac
 
         # 关于 GPU-SURF 的设置
         self.surf_hessian_threshold = 100.0
@@ -121,7 +121,7 @@ class VideoStitch(Utility.Method):
                                       cv2.IMREAD_GRAYSCALE)
             status, offset = self.calculate_offset_by_feature_in_roi(next_image)
             if status is False:
-                self.print_and_log("    {}th frame can not be stitched".format(file_index))
+                self.print_and_log("    {}th frame can not be stitched, the reason is {}".format(file_index, offset))
                 self.is_available_list.append(False)
             else:
                 self.print_and_log("    {}th frame can be stitched, the offset is {}".format(file_index, offset))
@@ -176,6 +176,8 @@ class VideoStitch(Utility.Method):
                 (status, offset) = self.get_offset_by_mode(last_kps, next_kps, matches)
             elif self.offset_calculate == "ransac":
                 (status, offset, adjustH) = self.get_offset_by_ransac(last_kps, next_kps, matches)
+        else:
+            return status, "there are one image have no features"
         if status is True:
             self.last_image_feature.kps = next_kps
             self.last_image_feature.features = next_features
@@ -201,12 +203,12 @@ class VideoStitch(Utility.Method):
                 (status, offset) = self.get_offset_by_mode(last_kps, next_kps, matches)
             elif self.offset_calculate == "ransac":
                 (status, offset, adjustH) = self.get_offset_by_ransac(last_kps, next_kps, matches)
-        if status is False:
-            return status, "  The two images can not match"
-        elif status:
+        else:
+            return status, "there are one image have no features"
+        if status:
             self.last_image_feature.kps = next_kps
             self.last_image_feature.features = next_features
-            return status, offset
+        return status, offset
 
     def get_stitch_by_offset(self):
         """
@@ -258,7 +260,6 @@ class VideoStitch(Utility.Method):
         stitch_result = np.zeros((result_row, result_col), np.int) - 1
         self.offset_list = temp_offset_list
         self.print_and_log("  The rectified offsetList is " + str(self.offset_list))
-
         # 如上算出各个图像相对于原点偏移量，并最终计算出输出图像大小，并构造矩阵，如下开始赋值
         for i in range(0, len(self.offset_list)):
             image = cv2.imdecode(np.fromfile(self.images_address_list[i], dtype=np.uint8), cv2.IMREAD_GRAYSCALE)
@@ -350,7 +351,7 @@ class VideoStitch(Utility.Method):
         total_status = True
         if len(matches) == 0:
             total_status = False
-            return total_status, [0, 0]
+            return total_status, "the two images have no matches"
         dx_list = []
         dy_list = []
         for trainIdx, queryIdx in matches:
@@ -358,10 +359,10 @@ class VideoStitch(Utility.Method):
             next_pt = (next_kps[trainIdx][1], next_kps[trainIdx][0])
             if int(last_pt[0] - next_pt[0]) == 0 and int(last_pt[1] - next_pt[1]) == 0:
                 continue
-            # dx_list.append(int(round(last_pt[0] - next_pt[0])))
-            # dy_list.append(int(round(last_pt[1] - next_pt[1])))
-            dx_list.append(int(last_pt[0] - next_pt[0]))
-            dy_list.append(int(last_pt[1] - next_pt[1]))
+            dx_list.append(int(round(last_pt[0] - next_pt[0])))
+            dy_list.append(int(round(last_pt[1] - next_pt[1])))
+            # dx_list.append(int(last_pt[0] - next_pt[0]))
+            # dy_list.append(int(last_pt[1] - next_pt[1]))
         if len(dx_list) == 0:
             dx_list.append(0)
             dy_list.append(0)
@@ -375,7 +376,9 @@ class VideoStitch(Utility.Method):
         num = zip_dict_sorted[list(zip_dict_sorted)[0]]
         if num < self.offset_evaluate:
             total_status = False
-        return total_status, [dx, dy]
+            return total_status, "the two images have less common offset"
+        else:
+            return total_status, [dx, dy]
 
     def get_offset_by_ransac(self, last_kps, next_kps, matches):
         total_status = False
@@ -519,8 +522,8 @@ class VideoStitch(Utility.Method):
         """
         pre_justify_image = np.zeros(gt_image.shape, dtype=np.uint8)
         # 获取两幅图像的形状
-        gt_shape = gt_image.shape
-        pre_shape = pre_image.shape
+        gt_h, gt_w = gt_image.shape
+        pre_h, pre_w = pre_image.shape
 
         # 裁剪两幅图像的ROI区域
         gt_roi = self.get_roi_region_for_incre(gt_image)
@@ -536,9 +539,44 @@ class VideoStitch(Utility.Method):
             matches = self.match_descriptors(gt_features, pre_features)
             if self.offset_calculate == "mode":
                 (status, offset) = self.get_offset_by_mode(gt_kps, pre_kps, matches)
-
+        print(offset)
         if status is False:
-            self.print_and_log("Matching error in justfing, please check")
+            self.print_and_log("Matching error in justifying, please check, the reason is {}".format(offset))
         else:
             dx, dy = offset
-            if dx >= 0 and dy 
+            if dx >= 0 and dy >= 0:
+                temp_height = min(gt_h - dx, pre_h)
+                temp_width = min(gt_w - dy, pre_w)
+                pre_justify_image[dx: dx + temp_height, dy: dy + temp_width] = pre_image[0: temp_height, 0: temp_width]
+            elif dx < 0 <= dy:
+                temp_height = min(pre_h - abs(dx), gt_h)
+                temp_width = min(gt_w - dy, pre_w)
+                pre_justify_image[0: temp_height, dy: dy + temp_width] = \
+                    pre_image[abs(dx): pre_h, 0: temp_width]
+            elif dx >= 0 > dy:
+                temp_height = min(gt_h - abs(dx), pre_h)
+                temp_width = min(pre_w - abs(dy), gt_w)
+                pre_justify_image[dx: dx + temp_height, 0: temp_width] = \
+                    pre_image[0: temp_height, abs(dy): abs(dy) + temp_width]
+            elif dx < 0 and dy < 0:
+                temp_height = min(pre_h - abs(dx), gt_h)
+                temp_width = min(pre_w - abs(dy), gt_w)
+                pre_justify_image[0: temp_height, 0: temp_width] = \
+                    pre_image[abs(dx): abs(dx) + temp_height, abs(dy): abs(dy) + temp_width]
+            elif dx == 0 and dy == 0:
+                pre_justify_image = gt_image
+        return pre_justify_image
+
+
+if __name__ == "__main__":
+    predict_image = cv2.imread("stitching_by_video.jpg", 0)
+    groundT_image = cv2.imread("stitching_by_human.jpg", 0)
+    # # pre_image = cv2.imread("pre_test.jpeg", 0)
+    # # gt_image = cv2.imread("gt_test.jpeg", 0)
+    stitcher = VideoStitch(".\\videos\\test_video.avi")
+    # justified_pre_image = stitcher.justify_result_shape(predict_image, groundT_image)
+    # cv2.imwrite("justified_result.jpg", justified_pre_image)
+    roi_pre_justify = predict_image[0:400, 0:400]
+    roi_gt = groundT_image[0:400, 0:400]
+    cv2.imwrite("roi_pre.jpg", roi_pre_justify)
+    cv2.imwrite("roi_gt.jpg", roi_gt)
