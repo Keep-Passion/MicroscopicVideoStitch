@@ -89,7 +89,7 @@ class Method:
 
 if __name__ == "__main__":
     # 根据图像生成视频
-    image = cv2.imread("stitching_by_human.jpg")
+    image = cv2.imread("stitching_by_human.png")
     project_address = os.getcwd()
     method = Method()
     method.generate_video_from_image(image, os.path.join(project_address, "result"))

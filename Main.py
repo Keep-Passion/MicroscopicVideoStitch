@@ -21,6 +21,6 @@ if __name__ == "__main__":
     stitch_image = stitcher.start_stitching()
     end_time = time.time()
     stitcher.print_and_log("The total time of video stitching is {:.3f} \'s".format(end_time - start_time))
-    cv2.imwrite("stitching_by_video.jpg", stitch_image)
+    cv2.imwrite("stitching_by_video.png", stitch_image)
     # justified_stitch_image = stitcher.justify_result_shape(stitch_image, gt_image)
     stitcher.compare_result_gt(stitch_image, gt_image)
