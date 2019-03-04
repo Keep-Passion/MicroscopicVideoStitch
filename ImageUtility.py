@@ -5,7 +5,7 @@ import skimage.measure
 
 class Method:
     # 关于 GPU 加速的设置
-    is_gpu_available = False
+    is_gpu_available = True
 
     # 关于打印信息的设置
     input_dir = ""
@@ -78,7 +78,8 @@ class Method:
         :param output_dir: video output dir
         :return:
         """
-        height, width, depth = source_image.shape
+        height, width = source_image.shape[:2]
+        print(height, width)
         fps = 16
         self.make_out_dir(output_dir)
         # video_writer = cv2.VideoWriter(os.path.join(output_dir, "test_video.avi"),
@@ -95,7 +96,7 @@ class Method:
                 break
             image_temp = source_image[row_index: row_index + width, :, :]
             video_writer.write(image_temp)
-            print("The {}th frame with shape of {}".format(row_index + 1, image_temp.shape))
+            self.print_and_log("The {}th frame with shape of {}".format(row_index + 1, image_temp.shape))
             row_index = row_index + 1
         video_writer.release()
         self.print_and_log("Convert end")
@@ -121,3 +122,5 @@ if __name__ == "__main__":
     project_address = os.getcwd()
     method = Method()
     method.generate_video_from_image(image, os.path.join(project_address, "result"))
+    # sub_image = method.resize_image(image, 0.5)
+    # cv2.imwrite("stitching_by_human.png", sub_image)

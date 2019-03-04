@@ -5,7 +5,7 @@ import time
 
 if __name__ == "__main__":
     project_address = os.getcwd()
-    gt_image = cv2.imread("D:\\Coding_Test\\Python\\MicroscopicVideoStitch\\stitching_by_human.jpg", 0)
+    gt_image = cv2.imread("D:\\Coding_Test\\Python\\MicroscopicVideoStitch\\stitching_by_human.png", 0)
     video_address = os.path.join(os.path.join(project_address, "videos"), "test_video.avi")
 
     fuse_method = "notFuse"

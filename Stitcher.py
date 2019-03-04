@@ -78,6 +78,8 @@ class VideoStitch(Utility.Method):
         # *********** 对视频采样，将采样的所有图像输出到与视频文件同目录的temp文件夹 ***********
         # 建立 temp 文件夹
         sample_dir = os.path.join(self.input_dir, "temp")
+        if os.path.exists(sample_dir):
+            self.delete_folder(sample_dir)
         self.make_out_dir(sample_dir)
 
         # 将 video 采样到 temp 文件夹
@@ -368,10 +370,10 @@ class VideoStitch(Utility.Method):
             next_pt = (next_kps[trainIdx][1], next_kps[trainIdx][0])
             if int(last_pt[0] - next_pt[0]) == 0 and int(last_pt[1] - next_pt[1]) == 0:
                 continue
-            dx_list.append(int(round(last_pt[0] - next_pt[0])))
-            dy_list.append(int(round(last_pt[1] - next_pt[1])))
-            # dx_list.append(int(last_pt[0] - next_pt[0]))
-            # dy_list.append(int(last_pt[1] - next_pt[1]))
+            # dx_list.append(int(round(last_pt[0] - next_pt[0])))
+            # dy_list.append(int(round(last_pt[1] - next_pt[1])))
+            dx_list.append(int(last_pt[0] - next_pt[0]))
+            dy_list.append(int(last_pt[1] - next_pt[1]))
         if len(dx_list) == 0:
             dx_list.append(0)
             dy_list.append(0)
@@ -380,6 +382,7 @@ class VideoStitch(Utility.Method):
         zip_list = list(zipped)
         zip_dict = dict((a, zip_list.count(a)) for a in zip_list)
         zip_dict_sorted = dict(sorted(zip_dict.items(), key=lambda x: x[1], reverse=True))
+        print(zip_dict_sorted)
         dx = list(zip_dict_sorted)[0][0]
         dy = list(zip_dict_sorted)[0][1]
         num = zip_dict_sorted[list(zip_dict_sorted)[0]]
@@ -581,6 +584,8 @@ class VideoStitch(Utility.Method):
             matches = self.match_descriptors(gt_features, pre_features)
             if self.offset_calculate == "mode":
                 (status, offset) = self.get_offset_by_mode(gt_kps, pre_kps, matches)
+
+        self.print_and_log(" Justifying two images, the offset is {}".format(offset))
         if status is False:
             self.print_and_log("Matching error in justifying, please check, the reason is {}".format(offset))
         else:
@@ -610,12 +615,12 @@ class VideoStitch(Utility.Method):
 
 
 if __name__ == "__main__":
-    predict_image = cv2.imread("stitching_by_video.jpg", 0)
-    groundT_image = cv2.imread("stitching_by_human.jpg", 0)
+    predict_image = cv2.imread("stitching_by_video.png", 0)
+    groundT_image = cv2.imread("stitching_by_human.png", 0)
     # # pre_image = cv2.imread("pre_test.jpeg", 0)
     # # gt_image = cv2.imread("gt_test.jpeg", 0)
     stitcher = VideoStitch(".\\videos\\test_video.avi")
-    # justified_pre_image = stitcher.justify_result_shape(predict_image, groundT_image)
+    justified_pre_image = stitcher.justify_result_shape(predict_image, groundT_image)
     # cv2.imwrite("justified_result.jpg", justified_pre_image)
     roi_pre_justify = predict_image[0:400, 0:400]
     roi_gt = groundT_image[0:400, 0:400]
