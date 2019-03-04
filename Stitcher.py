@@ -350,6 +350,13 @@ class VideoStitch(Utility.Method):
         return roi_region
 
     def get_offset_by_mode(self, last_kps, next_kps, matches):
+        """
+        通过众数的方法求取位移
+        :param last_kps: 上一张图像的特征点
+        :param next_kps: 下一张图像的特征点
+        :param matches: 匹配矩阵
+        :return: 返回拼接结果图像
+        """
         total_status = True
         if len(matches) == 0:
             total_status = False
@@ -383,6 +390,13 @@ class VideoStitch(Utility.Method):
             return total_status, [dx, dy]
 
     def get_offset_by_ransac(self, last_kps, next_kps, matches):
+        """
+        通过ransac方法求取位移
+        :param last_kps: 上一张图像的特征点
+        :param next_kps: 下一张图像的特征点
+        :param matches: 匹配矩阵
+        :return: 返回拼接结果图像
+        """
         total_status = False
         last_pts = np.float32([last_kps[i] for (_, i) in matches])
         next_pts = np.float32([next_kps[i] for (i, _) in matches])
@@ -407,6 +421,11 @@ class VideoStitch(Utility.Method):
 
     @staticmethod
     def np_to_list_for_keypoints(array):
+        """
+        GPU返回numpy形式的特征点，转成list形式
+        :param array:
+        :return:
+        """
         kps = []
         row, col = array.shape
         for i in range(row):
@@ -415,6 +434,11 @@ class VideoStitch(Utility.Method):
 
     @staticmethod
     def np_to_list_for_matches(array):
+        """
+        GPU返回numpy形式的匹配对，转成list形式
+        :param array:
+        :return:
+        """
         descriptors = []
         row, col = array.shape
         for i in range(row):
@@ -423,6 +447,11 @@ class VideoStitch(Utility.Method):
 
     @staticmethod
     def np_to_kps_and_descriptors(array):
+        """
+        GPU返回numpy形式的kps，descripotrs，转成list形式
+        :param array:
+        :return:
+        """
         kps = []
         descriptors = array[:, :, 1]
         for i in range(array.shape[0]):
@@ -430,6 +459,11 @@ class VideoStitch(Utility.Method):
         return kps, descriptors
 
     def detect_and_describe(self, image):
+        """
+        给定一张图像，求取特征点和特征描述符
+        :param image: 输入图像
+        :return: kps，features
+        """
         descriptor = None
         kps = None
         features = None
@@ -469,6 +503,12 @@ class VideoStitch(Utility.Method):
         return kps, features
 
     def match_descriptors(self, last_features, next_features):
+        """
+        根据两张图像的特征描述符，找到相应匹配对
+        :param last_features: 上一张图像特征描述符
+        :param next_features: 下一张图像特征描述符
+        :return: matches
+        """
         matches = None
         if self.feature_method == "surf" or self.feature_method == "sift":
             matcher = cv2.DescriptorMatcher_create("BruteForce")
@@ -541,7 +581,6 @@ class VideoStitch(Utility.Method):
             matches = self.match_descriptors(gt_features, pre_features)
             if self.offset_calculate == "mode":
                 (status, offset) = self.get_offset_by_mode(gt_kps, pre_kps, matches)
-        print(offset)
         if status is False:
             self.print_and_log("Matching error in justifying, please check, the reason is {}".format(offset))
         else:

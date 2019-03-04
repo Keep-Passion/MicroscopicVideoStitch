@@ -14,6 +14,11 @@ class Method:
     is_print_screen = True
 
     def print_and_log(self, content):
+        """
+        向屏幕或者txt打印信息
+        :param content:
+        :return:
+        """
         if self.is_print_screen:
             print(content)
         if self.is_out_log_file:
@@ -24,6 +29,11 @@ class Method:
 
     @staticmethod
     def make_out_dir(dir_path):
+        """
+        创造一个文件夹
+        :param dir_path:文件夹目录
+        :return:
+        """
         try:
             os.makedirs(dir_path)
         except OSError:
@@ -31,6 +41,11 @@ class Method:
 
     @staticmethod
     def delete_folder(dir_address):
+        """
+        删除一个文件夹下所有文件以及该文件夹
+        :param dir_address: 文件夹目录
+        :return:
+        """
         file_list = os.listdir(dir_address)
         file_num = len(file_list)
         if file_num != 0:
@@ -42,6 +57,13 @@ class Method:
 
     @staticmethod
     def resize_image(origin_image, resize_times, inter_method=cv2.INTER_AREA):
+        """
+        缩放图像
+        :param origin_image:原始图像
+        :param resize_times: 缩放比率
+        :param inter_method: 插值方法
+        :return: 缩放结果
+        """
         (h, w) = origin_image.shape
         resize_h = int(h * resize_times)
         resize_w = int(w * resize_times)
@@ -51,7 +73,7 @@ class Method:
 
     def generate_video_from_image(self, source_image, output_dir):
         """
-        Convert sour_image to video, simply crop sub-image in source_image in row direction with one pixel increment
+        Convert source_image to video, simply crop sub-image in source_image in row direction with one pixel increment
         :param source_image: source_image
         :param output_dir: video output dir
         :return:
@@ -65,8 +87,8 @@ class Method:
         #                                cv2.VideoWriter_fourcc('I', '4', '2', '0'), fps, (width, width))
         video_writer = cv2.VideoWriter(os.path.join(output_dir, "test_video.avi"),
                                        cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'), fps, (width, width))
-        print("Video setting: fps is {} and the frame size is {}".format(fps, (width, width)))
-        print("Start converting")
+        self.print_and_log("Video setting: fps is {} and the frame size is {}".format(fps, (width, width)))
+        self.print_and_log("Start converting")
         row_index = 0
         while True:
             if row_index + width > height:
@@ -76,15 +98,21 @@ class Method:
             print("The {}th frame with shape of {}".format(row_index + 1, image_temp.shape))
             row_index = row_index + 1
         video_writer.release()
-        print("Convert end")
+        self.print_and_log("Convert end")
 
-    @staticmethod
-    def compare_result_gt(stitch_image, gt_image):
+    def compare_result_gt(self, stitch_image, gt_image):
+        """
+        对比拼接图像和真实图像，MSE，pnsr,ssim
+        :param stitch_image:拼接图像
+        :param gt_image:结果图像
+        :return:
+        """
         assert stitch_image.shape == gt_image.shape, "The shape of two image is not same"
         mse_score = skimage.measure.compare_mse(stitch_image, gt_image)
         psnr_score = skimage.measure.compare_psnr(stitch_image, gt_image)
         ssim_score = skimage.measure.compare_ssim(stitch_image, gt_image)
-        print(" The mse is {}, psnr is {}, ssim is {}".format(mse_score, psnr_score, ssim_score))
+        self.print_and_log(" The mse is {}, psnr is {}, ssim is {}".format(mse_score, psnr_score, ssim_score))
+        return mse_score, psnr_score, ssim_score
 
 
 if __name__ == "__main__":

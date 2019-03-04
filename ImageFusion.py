@@ -287,34 +287,53 @@ class ImageFusion(Utility.Method):
         fuse_region = np.uint8(self.reconstruct(fuse_lp))
         return fuse_region
 
-    # block_size = 4
-    #
-    # def fuse_by_spatial_frequency(self, images):
-    #     """
-    #     空间频率滤波融合
-    #     引用自：《Combination of images with diverse focuses using the spatial frequency》
-    #     :param images:输入两个相同区域的图像
-    #     :return:融合后的图像
-    #     """
-    #     (last_image, next_image) = images
-    #     pass
+    block_size = 4
 
-    # def BlendArbitrary(self, img1, img2, R, level):
-    #     # img1 and img2 have the same size
-    #     # R represents the region to be combined
-    #     # level is the expected number of levels in the pyramid
-    #
-    #     LA, GA = self.get_laplacian_pyramid(img1)
-    #     LB, GB = self.get_laplacian_pyramid(img2)
-    #     GR = self.get_gaussian_pyramid(R)
-    #     GRN = []
-    #     for i in range(level):
-    #         GRN.append(np.ones((GR[i].shape[0], GR[i].shape[1])) - GR[i])
-    #     LC = []
-    #     for i in range(level):
-    #         LC.append(LA[i] * GR[level - i - 1] + LB[i] * GRN[level - i - 1])
-    #     result = self.reconstruct(LC)
-    #     return result
+    def fuse_by_spatial_frequency(self, images):
+        """
+        空间频率融合
+        引用自：《Combination of images with diverse focuses using the spatial frequency》
+        :param images:输入两个相同区域的图像
+        :return:融合后的图像
+        """
+        (last_image, next_image) = images
+        weight_matrix = self.get_spatial_frequency_matrix(images)
+        fuse_region = last_image * weight_matrix + next_image * (1 - weight_matrix)
+        return fuse_region.astype(np.uint8)
+
+    def get_spatial_frequency_matrix(self, images):
+        """
+        空间频率滤波的权值矩阵计算
+        :param images: 输入两个相同区域的图像
+        :return: 权值矩阵，第一张比第二张清晰的像素点为1，第二张比第一张清晰的像素点为0
+        """
+        (last_image, next_image) = images
+        weight_matrix = np.ones(last_image.shape)
+        if self.is_gpu_available:   # gpu模式
+            pass
+        else:   # cpu模式
+            pass
+        return weight_matrix
+
+    def fuse_by_sf_and_mbb(self, images):
+        """
+        多分辨率样条和空间频率融合叠加,空间频率生成的权值矩阵，生成高斯金字塔然后与拉普拉斯金字塔结合，
+        最后将上述金字塔生成图像
+        :param images: 输入两个相同区域的图像
+        :return: 融合后的图像
+        """
+        (last_image, next_image) = images
+        last_lp, last_gp = self.get_laplacian_pyramid(last_image)
+        next_lp, next_gp = self.get_laplacian_pyramid(next_image)
+        weight_matrix = self.get_spatial_frequency_matrix(images)
+        # wm_gp 为weight_matrix的高斯金字塔
+        wm_gp = self.get_gaussian_pyramid(weight_matrix)
+        fuse_lp = []
+        for i in range(self.pyramid_level):
+            fuse_lp.append(last_lp[i] * wm_gp[self.pyramid_level - i - 1] +
+                           next_lp[i] * (1 - wm_gp[self.pyramid_level - i - 1]))
+        fuse_region = np.uint8(self.reconstruct(fuse_lp))
+        return fuse_region
 
     # # 权值矩阵归一化
     # def normalize_weight_mat(self, weight_mat):
