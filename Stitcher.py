@@ -266,6 +266,8 @@ class VideoStitch(Utility.Method):
         self.print_and_log("  The rectified offsetList is " + str(self.offset_list))
         # 如上算出各个图像相对于原点偏移量，并最终计算出输出图像大小，并构造矩阵，如下开始赋值
         for i in range(0, len(self.offset_list)):
+            if self.is_available_list[i] is False:
+                continue
             image = cv2.imdecode(np.fromfile(self.images_address_list[i], dtype=np.uint8), cv2.IMREAD_GRAYSCALE)
             self.print_and_log("  stitching " + str(self.images_address_list[i]))
             if i == 0:
@@ -382,7 +384,6 @@ class VideoStitch(Utility.Method):
         zip_list = list(zipped)
         zip_dict = dict((a, zip_list.count(a)) for a in zip_list)
         zip_dict_sorted = dict(sorted(zip_dict.items(), key=lambda x: x[1], reverse=True))
-        print(zip_dict_sorted)
         dx = list(zip_dict_sorted)[0][0]
         dy = list(zip_dict_sorted)[0][1]
         num = zip_dict_sorted[list(zip_dict_sorted)[0]]
