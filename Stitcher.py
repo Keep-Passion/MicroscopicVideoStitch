@@ -4,7 +4,6 @@ import os
 import ImageUtility as Utility
 import ImageFusion
 import time
-import glob
 import myGpuFeatures
 
 
@@ -38,14 +37,14 @@ class VideoStitch(Utility.Method):
         self.tile_size = 5
 
         # 关于特征搜索的设置
-        self.roi_ratio = roi_ratio  # Incre method
+        self.roi_ratio = roi_ratio
         self.feature_method = feature_method  # "sift","surf" or "orb"
         self.search_ratio = search_ratio  # 0.75 is common value for matches
         self.last_image_feature = ImageFeature()  # 保存上一张图像特征，方便使用
 
         # 关于特征配准的设置
         self.offset_calculate = "mode"  # "mode" or "ransac"
-        self.offset_evaluate = 5  # 40 menas nums of matches for mode, 3.0 menas  of matches for ransac
+        self.offset_evaluate = 5
 
         # 关于 GPU-SURF 的设置
         self.surf_hessian_threshold = 100.0
@@ -76,65 +75,71 @@ class VideoStitch(Utility.Method):
         :return: 返回拼接后的图像，ndarry
         """
         # *********** 对视频采样，将采样的所有图像输出到与视频文件同目录的temp文件夹 ***********
-        # 建立 temp 文件夹
+        # # 建立 temp 文件夹
         sample_dir = os.path.join(self.input_dir, "temp")
-        if os.path.exists(sample_dir):
-            self.delete_folder(sample_dir)
-        self.make_out_dir(sample_dir)
-
-        # 将 video 采样到 temp 文件夹
-        self.print_and_log("Video name:" + self.video_address)
-        self.print_and_log("Sampling rate:" + str(self.sample_rate))
-        self.print_and_log("We save sampling images in " + sample_dir)
-        self.print_and_log("Sampling images ...")
-
-        # 解压文件时有可能会得到无法解压的错误，需要在工程中注意
-        cap = cv2.VideoCapture(self.video_address)
-        frame_num = 0
-        save_num = 0
-        start_time = time.time()
-        while True:
-            ret, origin_frame = cap.read()
-            if ret is False:
-                break
-            frame_num = frame_num + 1
-            if frame_num % self.sample_rate == 0:
-                gray_frame = cv2.cvtColor(origin_frame, cv2.COLOR_BGR2GRAY)
-                save_num = save_num + 1
-                cv2.imwrite(os.path.join(sample_dir, str(save_num).zfill(10) + ".png"), gray_frame)
-        cap.release()
-        end_time = time.time()
-        self.print_and_log("Sampled done, The time of sampling is {:.3f} \'s".format(end_time - start_time))
+        # if os.path.exists(sample_dir):
+        #     self.delete_folder(sample_dir)
+        # self.make_out_dir(sample_dir)
+        #
+        # # 将 video 采样到 temp 文件夹
+        # self.print_and_log("Video name:" + self.video_address)
+        # self.print_and_log("Sampling rate:" + str(self.sample_rate))
+        # self.print_and_log("We save sampling images in " + sample_dir)
+        # self.print_and_log("Sampling images ...")
+        #
+        # # 解压文件时有可能会得到无法解压的错误，需要在工程中注意
+        # cap = cv2.VideoCapture(self.video_address)
+        # frame_num = 0
+        # save_num = 0
+        # start_time = time.time()
+        # while True:
+        #     ret, origin_frame = cap.read()
+        #     if ret is False:
+        #         break
+        #     frame_num = frame_num + 1
+        #     if frame_num % self.sample_rate == 0:
+        #         gray_frame = cv2.cvtColor(origin_frame, cv2.COLOR_BGR2GRAY)
+        #         save_num = save_num + 1
+        #         cv2.imwrite(os.path.join(sample_dir, str(save_num).zfill(10) + ".png"), gray_frame)
+        # cap.release()
+        # end_time = time.time()
+        # self.print_and_log("Sampled done, The time of sampling is {:.3f} \'s".format(end_time - start_time))
 
         # **************************** 配准 ****************************
         # 开始拼接文件夹下的图片
-        self.images_address_list = glob.glob(os.path.join(sample_dir, "*.png"))
-        self.print_and_log("start matching")
-        start_time = time.time()
+        dirs = sorted(os.listdir(sample_dir), key=lambda i:int(i.split(".")[0]))
+        self.images_address_list = [os.path.join(sample_dir, item) for item in dirs]
+        # self.print_and_log("start matching")
+        # start_time = time.time()
         last_image = cv2.imdecode(np.fromfile(self.images_address_list[0], dtype=np.uint8), cv2.IMREAD_GRAYSCALE)
-        last_roi = self.get_roi_region_for_incre(last_image)
-        last_kps, last_features = self.calculate_feature(last_roi)
-        self.last_image_feature.kps = last_kps
-        self.last_image_feature.features = last_features
-        self.is_available_list.append(True)
+        # last_roi = self.get_roi_region_for_incre(last_image)
+        # last_kps, last_features = self.calculate_feature(last_roi)
+        # self.last_image_feature.kps = last_kps
+        # self.last_image_feature.features = last_features
+        # self.is_available_list.append(True)
         self.image_shape = last_image.shape
-        for file_index in range(1, len(self.images_address_list)):
-            self.print_and_log("    Analyzing {}th frame and the name is {}".format(file_index, os.path.basename(
-                self.images_address_list[file_index])))
-            next_image = cv2.imdecode(np.fromfile(self.images_address_list[file_index], dtype=np.uint8),
-                                      cv2.IMREAD_GRAYSCALE)
-            status, offset = self.calculate_offset_by_feature_in_roi(next_image)
-            if status is False:
-                self.print_and_log("    {}th frame can not be stitched, the reason is {}".format(file_index, offset))
-                self.is_available_list.append(False)
-            else:
-                self.print_and_log("    {}th frame can be stitched, the offset is {}".format(file_index, offset))
-                self.is_available_list.append(True)
-                self.offset_list.append(offset)
-        end_time = time.time()
-        self.print_and_log("The time of registering is {:.3f} \'s".format(end_time - start_time))
+        # for file_index in range(1, len(self.images_address_list)):
+        #     self.print_and_log("    Analyzing {}th frame and the name is {}".format(file_index, os.path.basename(
+        #         self.images_address_list[file_index])))
+        #     next_image = cv2.imdecode(np.fromfile(self.images_address_list[file_index], dtype=np.uint8),
+        #                               cv2.IMREAD_GRAYSCALE)
+        #     status, offset = self.calculate_offset_by_feature_in_roi(next_image)
+        #     if status is False:
+        #         self.print_and_log("    {}th frame can not be stitched, the reason is {}".format(file_index, offset))
+        #         self.is_available_list.append(False)
+        #         self.offset_list.append([0, 0])
+        #     else:
+        #         self.print_and_log("    {}th frame can be stitched, the offset is {}".format(file_index, offset))
+        #         self.is_available_list.append(True)
+        #         self.offset_list.append(offset)
+        # end_time = time.time()
+        # self.print_and_log("The time of registering is {:.3f} \'s".format(end_time - start_time))
+        # self.print_and_log("is_available_list:{}".format(self.is_available_list))
+        # self.print_and_log("offset_list:{}".format(self.offset_list))
 
-        # *************************** 融合及拼接 ***************************
+        self.offset_list = [[1, 0], [-2, 0], [1, 0], [-1, 0], [1, 0], [0, -1], [3, 1], [0, -1], [0, 1], [0, -1], [0, 1], [0, -1], [-1, 0], [-1, 0], [1, 0], [1, 0], [1, 0], [8, 2], [11, 1], [33, 6], [34, 7], [69, 14], [12, 2], [2, 0], [2, 0], [0, -1], [-1, 0], [0, 1], [-1, 0], [-1, 0], [-1, 0], [-1, 0], [1, 0], [1, 0], [1, 0], [1, 0], [1, 0], [5, 1], [2, 0], [3, 0], [12, 2], [0, 0], [87, 18], [7, 1], [3, 0], [2, 0], [1, 0], [1, 0], [0, -1], [0, -1], [0, 1], [-1, 0], [0, -1], [-1, 0], [0, 1], [1, 0], [0, 1], [0, 1], [0, -1], [1, 0], [1, 0], [1, 0], [1, 0], [1, 0], [0, 1], [0, 1], [1, 0], [1, 0], [1, 0], [1, 0], [1, 0], [4, 1], [4, 1], [2, 0], [1, 0], [1, 0], [5, -3], [4, -3], [1, 0], [1, 0], [-3, 0], [1, 0], [4, 1], [2, 0], [4, 0], [2, 0], [4, 0], [3, 1], [5, 0], [7, -2], [6, -1], [-7, -1], [1, 0], [2, 0], [0, 1], [-1, -1], [-1, 0], [0, 1], [0, -1], [1, 0], [-1, 0], [0, -1], [1, 0], [0, 1], [1, 0], [1, 0], [10, 2], [4, 0], [1, 0], [1, 0], [0, -1], [3, 1], [1, 0], [-4, -1], [-1, 0], [1, 0], [1, 0], [2, 0], [4, 1], [6, 1], [27, 0], [0, 0], [258, 39], [23, -13], [0, 1], [0, -1], [1, 0], [-1, 0], [-1, 0], [-1, 0], [-1, 0], [1, 0], [2, 0], [1, 0], [0, -1], [0, 1], [-1, 0], [1, 0], [1, 0], [1, 0], [0, -1], [-1, 0], [1, 0], [-1, 0], [1, 0], [4, 0], [0, -1], [0, -1], [1, 0], [12, -11], [1, 0], [-1, 0], [-1, 0], [-2, 0], [-1, 0], [-3, 0], [-2, 0], [0, 1], [0, -1], [0, 1], [-1, 0], [0, -1], [0, 1], [0, 1], [1, 0], [-1, 0], [-1, 0], [0, -1], [0, 1], [1, 0], [1, 0], [0, 1], [-1, 0], [0, 1], [1, 0], [0, -1], [1, 0], [0, 1], [0, -1], [1, 0], [0, 1], [1, 0], [8, 1], [1, 0], [3, -1], [4, -2], [9, -7], [4, -6], [0, -2], [-7, -3], [7, 1], [2, 0], [-5, -1], [1, 0], [1, 0], [1, 0], [-1, 0], [1, 0], [-1, 0], [-6, -1], [2, 0], [12, -3], [3, -2], [6, -6], [3, -2], [6, -5], [10, -9], [6, -5], [2, -3], [1, 0], [2, 0], [4, -3], [17, -15], [1, -1], [1, 0], [2, 0], [2, -3], [2, 0], [1, 0], [0, -1], [1, 0], [1, 0], [1, 0], [-2, 0], [-7, -1], [1, 0], [1, 0], [1, 0], [0, -1], [1, 0], [4, 1], [9, 1], [6, 1], [9, 1], [17, 4], [20, 4], [11, 2], [7, 1], [4, 1], [0, -1], [1, 0], [0, -1], [0, -1], [1, 0], [0, 1], [0, 1], [1, 0], [1, 0], [1, 0], [0, 1], [1, 0], [0, -1], [0, 1], [0, -1], [1, 0], [1, 0], [0, -1], [1, 0], [-1, 0], [0, 1], [1, 0], [1, 0], [1, 0], [1, 0], [-1, 0], [1, 0], [1, 0], [0, 1], [1, 0], [1, 0], [0, 1], [0, -1], [-1, 0], [0, 1], [1, 0], [1, 0], [1, 0], [0, 1], [0, -1], [0, -1], [0, 1], [-1, 0], [1, 0], [0, 1], [0, -1], [0, -1], [1, 0], [0, 1], [0, 1], [0, -1], [1, 0], [1, 1], [3, 0], [0, 0], [0, 0], [258, 57], [14, 3], [7, 0], [1, 0], [-6, -1], [-7, -1], [-1, 0], [3, 0], [5, 0], [-3, 0], [-1, 0], [6, 0], [-1, 0], [-7, -1], [-1, 0], [-1, 0], [1, 0], [0, -1], [0, 1], [0, 1], [0, 1], [0, 1], [0, -1], [0, -1], [0, -1], [0, -1], [0, 1], [0, 1], [0, -1], [-1, 0], [0, 1], [0, -1], [0, 1], [0, -1], [0, -1], [0, 1], [0, 1], [1, 0], [1, 0], [0, 1], [0, 1], [-1, 0], [0, 1], [0, -1], [0, -1], [0, 1], [1, 0], [0, -1], [0, 1], [0, -1], [0, 1], [-1, 0], [0, -1], [8, 1], [5, 1], [0, 1], [0, -1], [0, 1], [0, 1], [0, -1], [0, 1], [0, 1], [-1, 0], [0, -1], [0, 1], [0, -1], [1, 0], [1, 0], [0, -1], [-1, 0], [0, -1], [0, -1], [-1, 0], [1, 0], [1, 0], [0, 1], [0, -1], [0, -1], [0, 1]]
+        self.is_available_list = [True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, False, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, False, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, False, False, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True]
+        # # *************************** 融合及拼接 ***************************
         self.print_and_log("start fusing")
         start_time = time.time()
         stitch_image = self.get_stitch_by_offset()
