@@ -171,8 +171,8 @@ def register_results_and_compare():
         print("The average ssim is {}".format(np.average(total_ssim)))
 
 if __name__ == "__main__":
-    register_multi_focus_images()
+    # register_multi_focus_images()
     # stitch_images()
-    # stitch_videos()
-    # register_results_and_compare()
+    stitch_videos()
+    register_results_and_compare()
 
