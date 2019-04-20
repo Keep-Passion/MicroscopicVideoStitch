@@ -6,3 +6,4 @@ videos/
 result/
 __pycache__/
 .pyc
+datasets/
