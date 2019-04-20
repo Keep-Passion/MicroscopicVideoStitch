@@ -1,22 +1,28 @@
-﻿import numpy as np
+import numpy as np
 import cv2
 import os
 from image_utility import Method
 from image_fusion import ImageFusion
 import time
 import myGpuFeatures
-import skimage.measure
 
+
+class ImageFeature:
+    """
+    用来保存串行全局拼接中的第二张图像的特征点和描述子，为后续加速拼接使用
+    """
+    kps = None
+    features = None
 
 class VideoStitch(Method):
     """
-    The class of video stitcher
-    """
+     The class of video stitcher
+     """
     image_shape = None
     offset_list = []
     is_available_list = []
     images_address_list = None
-
+    last_image_feature = ImageFeature()
     # 关于图像增强的操作
     is_enhance = False
     is_clahe = False
@@ -57,25 +63,22 @@ class VideoStitch(Method):
 
     def start_stitching(self, video_address, sample_rate=1):
         """
-        stitching the video
-        :param video_address: 视频地址
-        :param sample_rate: 视频采样帧率
+        对视频进行拼接
         :return: 返回拼接后的图像，ndarry
         """
         # *********** 对视频采样，将采样的所有图像输出到与视频文件同目录的temp文件夹 ***********
-        # 建立 temp 文件夹
+        # # 建立 temp 文件夹
         input_dir = os.path.dirname(video_address)
         sample_dir = os.path.join(input_dir, "temp")
+        if os.path.exists(sample_dir):
+            self.delete_folder(sample_dir)
+        self.make_out_dir(sample_dir)
 
         # 将 video 采样到 temp 文件夹
         self.print_and_log("Video name:" + video_address)
         self.print_and_log("Sampling rate:" + str(sample_rate))
         self.print_and_log("We save sampling images in " + sample_dir)
         self.print_and_log("Sampling images ...")
-
-        if os.path.exists(sample_dir):
-            self.delete_folder(sample_dir)
-        self.make_out_dir(sample_dir)
 
         # 解压文件时有可能会得到无法解压的错误，需要在工程中注意
         cap = cv2.VideoCapture(video_address)
@@ -95,111 +98,55 @@ class VideoStitch(Method):
         end_time = time.time()
         self.print_and_log("Sampled done, The time of sampling is {:.3f} \'s".format(end_time - start_time))
 
-        # # **************************** 配准 ****************************
-        # # 开始拼接文件夹下的图片
-        dirs = sorted(os.listdir(sample_dir), key=lambda i: int(i.split(".")[0]))
+        # **************************** 配准 ****************************
+        # 开始拼接文件夹下的图片
+        dirs = sorted(os.listdir(sample_dir), key=lambda i:int(i.split(".")[0]))
         self.images_address_list = [os.path.join(sample_dir, item) for item in dirs]
         self.print_and_log("start matching")
-        # self.image_shape = (1200, 1600)
-
+        status = True
         start_time = time.time()
+        last_image = cv2.imdecode(np.fromfile(self.images_address_list[0], dtype=np.uint8), cv2.IMREAD_GRAYSCALE)
+        self.image_shape = last_image.shape
+        # last_roi = self.get_roi_region_for_incre(last_image)
+        # last_kps, last_features = self.calculate_feature(last_roi)
+        # self.last_image_feature.kps = last_kps
+        # self.last_image_feature.features = last_features
+        # self.is_available_list.append(True)
+        # for file_index in range(1, len(self.images_address_list)):
+        #     self.print_and_log("    Analyzing {}th frame and the name is {}".format(file_index, os.path.basename(
+        #         self.images_address_list[file_index])))
+        #     next_image = cv2.imdecode(np.fromfile(self.images_address_list[file_index], dtype=np.uint8),
+        #                               cv2.IMREAD_GRAYSCALE)
+        #     status, offset = self.calculate_offset_by_feature_in_roi(next_image)
+        #     if status is False:
+        #         self.print_and_log("    {}th frame can not be stitched, the reason is {}".format(file_index, offset))
+        #         self.is_available_list.append(False)
+        #         self.offset_list.append([0, 0])
+        #     else:
+        #         self.print_and_log("    {}th frame can be stitched, the offset is {}".format(file_index, offset))
+        #         self.is_available_list.append(True)
+        #         self.offset_list.append(offset)
+        # end_time = time.time()
+        # self.print_and_log("The time of registering is {:.3f} \'s".format(end_time - start_time))
+        # self.print_and_log("is_available_list:{}".format(self.is_available_list))
+        # self.print_and_log("offset_list:{}".format(self.offset_list))
 
-        self.is_available_list.append(True)
-        status = False
-        for file_index in range(1, len(self.images_address_list)):
-            self.print_and_log("    Analyzing {}th frame and the name is {}".format(file_index, os.path.basename(
-                self.images_address_list[file_index])))
-            # 获得上一次可用的编号,不是所有帧都是有用的，所以在寻找时需要过滤
-            # 先找到 is_available_list 中最后一个True的索引，在减去目前索引到其距离
-            temp_available_list = self.is_available_list.copy()
-            temp_available_list.reverse()
-            last_file_index = file_index - temp_available_list.index(True) - 1
-            # self.print_and_log("  The last file index is {}, the next file index is {}"
-            #                    .format(last_file_index, file_index))
-            last_image = cv2.imdecode(np.fromfile(self.images_address_list[last_file_index], dtype=np.uint8),
-                                      cv2.IMREAD_GRAYSCALE)
-            next_image = cv2.imdecode(np.fromfile(self.images_address_list[file_index], dtype=np.uint8),
-                                      cv2.IMREAD_GRAYSCALE)
-            self.image_shape = last_image.shape
-            status, offset = self.calculate_offset_by_feature_in_roi([last_image, next_image])
-            if status is False:
-                self.print_and_log("    {}th frame can not be stitched, the reason is {}".format(file_index, offset))
-                self.is_available_list.append(False)
-                self.offset_list.append([0, 0])
-            else:
-                self.print_and_log("    {}th frame can be stitched, the offset is {}".format(file_index, offset))
-                self.is_available_list.append(True)
-                self.offset_list.append(offset)
-        end_time = time.time()
-        self.print_and_log("The time of registering is {:.3f} \'s".format(end_time - start_time))
-        self.print_and_log("is_available_list:{}".format(self.is_available_list))
-        self.print_and_log("offset_list:{}".format(self.offset_list))
-
-        # self.offset_list = [[1, 0], [-2, 0], [1, 0], [-1, 0], [1, 0], [0, -1], [3, 1], [0, -1], [0, 1], [0, -1], [0, 1], [0, -1], [-1, 0], [-1, 0], [1, 0], [1, 0], [1, 0], [8, 2], [11, 1], [33, 6], [34, 7], [69, 14], [12, 2], [2, 0], [2, 0], [0, -1], [-1, 0], [0, 1], [-1, 0], [-1, 0], [-1, 0], [-1, 0], [1, 0], [1, 0], [1, 0], [1, 0], [1, 0], [5, 1], [2, 0], [3, 0], [12, 2], [0, 0], [87, 18], [7, 1], [3, 0], [2, 0], [1, 0], [1, 0], [0, -1], [0, -1], [0, 1], [-1, 0], [0, -1], [-1, 0], [0, 1], [1, 0], [0, 1], [0, 1], [0, -1], [1, 0], [1, 0], [1, 0], [1, 0], [1, 0], [0, 1], [0, 1], [1, 0], [1, 0], [1, 0], [1, 0], [1, 0], [4, 1], [4, 1], [2, 0], [1, 0], [1, 0], [5, -3], [4, -3], [1, 0], [1, 0], [-3, 0], [1, 0], [4, 1], [2, 0], [4, 0], [2, 0], [4, 0], [3, 1], [5, 0], [7, -2], [6, -1], [-7, -1], [1, 0], [2, 0], [0, 1], [-1, -1], [-1, 0], [0, 1], [0, -1], [1, 0], [-1, 0], [0, -1], [1, 0], [0, 1], [1, 0], [1, 0], [10, 2], [4, 0], [1, 0], [1, 0], [0, -1], [3, 1], [1, 0], [-4, -1], [-1, 0], [1, 0], [1, 0], [2, 0], [4, 1], [6, 1], [27, 0], [0, 0], [258, 39], [23, -13], [0, 1], [0, -1], [1, 0], [-1, 0], [-1, 0], [-1, 0], [-1, 0], [1, 0], [2, 0], [1, 0], [0, -1], [0, 1], [-1, 0], [1, 0], [1, 0], [1, 0], [0, -1], [-1, 0], [1, 0], [-1, 0], [1, 0], [4, 0], [0, -1], [0, -1], [1, 0], [12, -11], [1, 0], [-1, 0], [-1, 0], [-2, 0], [-1, 0], [-3, 0], [-2, 0], [0, 1], [0, -1], [0, 1], [-1, 0], [0, -1], [0, 1], [0, 1], [1, 0], [-1, 0], [-1, 0], [0, -1], [0, 1], [1, 0], [1, 0], [0, 1], [-1, 0], [0, 1], [1, 0], [0, -1], [1, 0], [0, 1], [0, -1], [1, 0], [0, 1], [1, 0], [8, 1], [1, 0], [3, -1], [4, -2], [9, -7], [4, -6], [0, -2], [-7, -3], [7, 1], [2, 0], [-5, -1], [1, 0], [1, 0], [1, 0], [-1, 0], [1, 0], [-1, 0], [-6, -1], [2, 0], [12, -3], [3, -2], [6, -6], [3, -2], [6, -5], [10, -9], [6, -5], [2, -3], [1, 0], [2, 0], [4, -3], [17, -15], [1, -1], [1, 0], [2, 0], [2, -3], [2, 0], [1, 0], [0, -1], [1, 0], [1, 0], [1, 0], [-2, 0], [-7, -1], [1, 0], [1, 0], [1, 0], [0, -1], [1, 0], [4, 1], [9, 1], [6, 1], [9, 1], [17, 4], [20, 4], [11, 2], [7, 1], [4, 1], [0, -1], [1, 0], [0, -1], [0, -1], [1, 0], [0, 1], [0, 1], [1, 0], [1, 0], [1, 0], [0, 1], [1, 0], [0, -1], [0, 1], [0, -1], [1, 0], [1, 0], [0, -1], [1, 0], [-1, 0], [0, 1], [1, 0], [1, 0], [1, 0], [1, 0], [-1, 0], [1, 0], [1, 0], [0, 1], [1, 0], [1, 0], [0, 1], [0, -1], [-1, 0], [0, 1], [1, 0], [1, 0], [1, 0], [0, 1], [0, -1], [0, -1], [0, 1], [-1, 0], [1, 0], [0, 1], [0, -1], [0, -1], [1, 0], [0, 1], [0, 1], [0, -1], [1, 0], [1, 1], [3, 0], [0, 0], [0, 0], [258, 57], [14, 3], [7, 0], [1, 0], [-6, -1], [-7, -1], [-1, 0], [3, 0], [5, 0], [-3, 0], [-1, 0], [6, 0], [-1, 0], [-7, -1], [-1, 0], [-1, 0], [1, 0], [0, -1], [0, 1], [0, 1], [0, 1], [0, 1], [0, -1], [0, -1], [0, -1], [0, -1], [0, 1], [0, 1], [0, -1], [-1, 0], [0, 1], [0, -1], [0, 1], [0, -1], [0, -1], [0, 1], [0, 1], [1, 0], [1, 0], [0, 1], [0, 1], [-1, 0], [0, 1], [0, -1], [0, -1], [0, 1], [1, 0], [0, -1], [0, 1], [0, -1], [0, 1], [-1, 0], [0, -1], [8, 1], [5, 1], [0, 1], [0, -1], [0, 1], [0, 1], [0, -1], [0, 1], [0, 1], [-1, 0], [0, -1], [0, 1], [0, -1], [1, 0], [1, 0], [0, -1], [-1, 0], [0, -1], [0, -1], [-1, 0], [1, 0], [1, 0], [0, 1], [0, -1], [0, -1], [0, 1]]
-        # self.is_available_list = [True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, False, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, False, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, False, False, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True]
+        self.offset_list = [[1, 0], [-2, 0], [1, 0], [-1, 0], [1, 0], [0, -1], [3, 1], [0, -1], [0, 1], [0, -1], [0, 1], [0, -1], [-1, 0], [-1, 0], [1, 0], [1, 0], [1, 0], [8, 2], [11, 1], [33, 6], [34, 7], [69, 14], [12, 2], [2, 0], [2, 0], [0, -1], [-1, 0], [0, 1], [-1, 0], [-1, 0], [-1, 0], [-1, 0], [1, 0], [1, 0], [1, 0], [1, 0], [1, 0], [5, 1], [2, 0], [3, 0], [12, 2], [0, 0], [87, 18], [7, 1], [3, 0], [2, 0], [1, 0], [1, 0], [0, -1], [0, -1], [0, 1], [-1, 0], [0, -1], [-1, 0], [0, 1], [1, 0], [0, 1], [0, 1], [0, -1], [1, 0], [1, 0], [1, 0], [1, 0], [1, 0], [0, 1], [0, 1], [1, 0], [1, 0], [1, 0], [1, 0], [1, 0], [4, 1], [4, 1], [2, 0], [1, 0], [1, 0], [5, -3], [4, -3], [1, 0], [1, 0], [-3, 0], [1, 0], [4, 1], [2, 0], [4, 0], [2, 0], [4, 0], [3, 1], [5, 0], [7, -2], [6, -1], [-7, -1], [1, 0], [2, 0], [0, 1], [-1, -1], [-1, 0], [0, 1], [0, -1], [1, 0], [-1, 0], [0, -1], [1, 0], [0, 1], [1, 0], [1, 0], [10, 2], [4, 0], [1, 0], [1, 0], [0, -1], [3, 1], [1, 0], [-4, -1], [-1, 0], [1, 0], [1, 0], [2, 0], [4, 1], [6, 1], [0, 0], [0, 0], [289, 40], [23, -13], [0, 1], [0, -1], [1, 0], [-1, 0], [-1, 0], [-1, 0], [-1, 0], [1, 0], [2, 0], [1, 0], [0, -1], [0, 1], [-1, 0], [1, 0], [1, 0], [1, 0], [0, -1], [-1, 0], [1, 0], [-1, 0], [1, 0], [4, 0], [0, -1], [0, -1], [1, 0], [12, -11], [1, 0], [-1, 0], [-1, 0], [-2, 0], [-1, 0], [-3, 0], [-2, 0], [0, 1], [0, -1], [0, 1], [-1, 0], [0, -1], [0, 1], [0, 1], [1, 0], [-1, 0], [-1, 0], [0, -1], [0, 1], [1, 0], [1, 0], [0, 1], [-1, 0], [0, 1], [1, 0], [0, -1], [1, 0], [0, 1], [0, -1], [1, 0], [0, 1], [1, 0], [8, 1], [1, 0], [3, -1], [4, -2], [9, -7], [4, -6], [0, -2], [-7, -3], [7, 1], [2, 0], [-5, -1], [1, 0], [1, 0], [1, 0], [-1, 0], [1, 0], [-1, 0], [-6, -1], [2, 0], [12, -3], [3, -2], [6, -6], [3, -2], [6, -5], [10, -9], [6, -5], [2, -3], [1, 0], [2, 0], [4, -3], [17, -15], [1, -1], [1, 0], [2, 0], [2, -3], [2, 0], [1, 0], [0, -1], [1, 0], [1, 0], [1, 0], [-2, 0], [-7, -1], [1, 0], [1, 0], [1, 0], [0, -1], [1, 0], [0, 0], [14, 3], [6, 1], [9, 1], [17, 4], [20, 4], [11, 2], [7, 1], [4, 1], [0, -1], [1, 0], [0, -1], [0, -1], [1, 0], [0, 1], [0, 1], [1, 0], [1, 0], [1, 0], [0, 1], [1, 0], [0, -1], [0, 1], [0, -1], [1, 0], [1, 0], [0, -1], [1, 0], [-1, 0], [0, 1], [1, 0], [1, 0], [1, 0], [1, 0], [-1, 0], [1, 0], [1, 0], [0, 1], [1, 0], [1, 0], [0, 1], [0, -1], [-1, 0], [0, 1], [1, 0], [1, 0], [1, 0], [0, 1], [0, -1], [0, -1], [0, 1], [-1, 0], [1, 0], [0, 1], [0, -1], [0, -1], [1, 0], [0, 1], [0, 1], [0, -1], [1, 0], [1, 1], [3, 0], [0, 0], [0, 0], [258, 57], [14, 3], [7, 0], [1, 0], [-6, -1], [-7, -1], [-1, 0], [3, 0], [5, 0], [-3, 0], [-1, 0], [6, 0], [-1, 0], [-7, -1], [-1, 0], [-1, 0], [1, 0], [0, -1], [0, 1], [0, 1], [0, 1], [0, 1], [0, -1], [0, -1], [0, -1], [0, -1], [0, 1], [0, 1], [0, -1], [-1, 0], [0, 1], [0, -1], [0, 1], [0, -1], [0, -1], [0, 1], [0, 1], [1, 0], [1, 0], [0, 1], [0, 1], [-1, 0], [0, 1], [0, -1], [0, -1], [0, 1], [1, 0], [0, -1], [0, 1], [0, -1], [0, 1], [-1, 0], [0, -1], [8, 1], [5, 1], [0, 1], [0, -1], [0, 1], [0, 1], [0, -1], [0, 1], [0, 1], [-1, 0], [0, -1], [0, 1], [0, -1], [1, 0], [1, 0], [0, -1], [-1, 0], [0, -1], [0, -1], [-1, 0], [1, 0], [1, 0], [0, 1], [0, -1], [0, -1], [0, 1]]
+        self.is_available_list = [True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, False, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, False, False, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, False, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, False, False, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True]
         # # *************************** 融合及拼接 ***************************
         self.print_and_log("start fusing")
         start_time = time.time()
         stitch_image = self.get_stitch_by_offset()
         end_time = time.time()
         self.print_and_log("The time of fusing is {:.3f} \'s".format(end_time - start_time))
-        self.delete_folder(sample_dir)
-        self.is_available_list = None
-        self.offset_list = None
+        # self.delete_folder(sample_dir)
         return status, stitch_image
-
-    def calculate_offset_by_feature_in_roi(self, images):
-        """
-        采用ROI增长的方式进行特征搜索
-        :param images: [last_image, next_image]
-        :return: status, temp_offset, （拼接状态， 偏移量）
-        """
-        status = False
-        temp_offset = [0, 0]
-        last_image, next_image = images
-        row, col = last_image.shape[:2]
-        max_iteration = int(1 / self.roi_ratio)
-        for i in range(0, max_iteration):
-            temp_ratio = self.roi_ratio * (i + 1)
-            search_len = np.floor(row * temp_ratio).astype(int)
-            roi_last_image = last_image[0: search_len, :]
-            roi_next_image = next_image[0: search_len, :]
-            status, temp_offset = self.calculate_offset_by_feature(roi_last_image, roi_next_image)
-            if status is False:
-                continue
-            else:
-                break
-        return status, temp_offset
-
-    def calculate_offset_by_feature(self, last_image, next_image):
-        """
-        通过全局特征匹配计算偏移量
-        :param last_image: 上一张图像
-        :param next_image: 下一张图像
-        :return: status, temp_offset, （拼接状态， 偏移量）
-        """
-        offset = [0, 0]
-        status = False
-
-        # get the feature points
-        last_kps, last_features = self.calculate_feature(last_image)
-        next_kps, next_features = self.calculate_feature(next_image)
-        if last_features is not None and next_features is not None:
-            matches = self.match_descriptors(last_features, next_features)
-            # match all the feature points
-            if self.offset_calculate == "mode":
-                (status, offset) = self.get_offset_by_mode(last_kps, next_kps, matches)
-            elif self.offset_calculate == "ransac":
-                (status, offset, adjustH) = self.get_offset_by_ransac(last_kps, next_kps, matches)
-            return status, offset
-        else:
-            return status, "there are one image have no features"
 
     def calculate_feature(self, input_image):
         """
         计算图像特征点
         :param input_image: 输入图像
-        :return: kps, features 返回特征点，及其相应特征描述符
+        :return: 返回特征点(kps)，及其相应特征描述符
         """
         # 判断是否有增强
         if self.is_enhance:
@@ -210,6 +157,61 @@ class VideoStitch(Method):
                 input_image = cv2.equalizeHist(input_image)
         kps, features = self.detect_and_describe(input_image)
         return kps, features
+
+    def calculate_offset_by_feature(self, next_image):
+        """
+        通过全局特征匹配计算偏移量
+        :param next_image: 下一张图像
+        :return: 返回配准结果和偏移量(offset = [dx,dy])
+        """
+        offset = [0, 0]
+        status = False
+
+        # get the feature points
+        last_kps = self.last_image_feature.kps
+        last_features = self.last_image_feature.features
+
+        next_kps, next_features = self.calculate_feature(next_image)
+        if last_features is not None and next_features is not None:
+            matches = self.match_descriptors(last_features, next_features)
+            # match all the feature points
+            if self.offset_calculate == "mode":
+                (status, offset) = self.get_offset_by_mode(last_kps, next_kps, matches)
+            elif self.offset_calculate == "ransac":
+                (status, offset, adjustH) = self.get_offset_by_ransac(last_kps, next_kps, matches)
+        else:
+            return status, "there are one image have no features"
+        if status is True:
+            self.last_image_feature.kps = next_kps
+            self.last_image_feature.features = next_features
+        return status, offset
+
+    def calculate_offset_by_feature_in_roi(self, next_image):
+        """
+        通过局部特征匹配计算偏移量
+        :param next_image: 下一张图像
+        :return: 返回配准结果和偏移量(offset = [dx,dy])
+        """
+        offset = [0, 0]
+        status = False
+        # get the feature points
+        last_kps = self.last_image_feature.kps
+        last_features = self.last_image_feature.features
+        next_roi = self.get_roi_region_for_incre(next_image)
+        next_kps, next_features = self.detect_and_describe(next_roi)
+        if last_features is not None and next_features is not None:
+            matches = self.match_descriptors(last_features, next_features)
+            # match all the feature points
+            if self.offset_calculate == "mode":
+                (status, offset) = self.get_offset_by_mode(last_kps, next_kps, matches)
+            elif self.offset_calculate == "ransac":
+                (status, offset, adjustH) = self.get_offset_by_ransac(last_kps, next_kps, matches)
+        else:
+            return status, "there are one image have no features"
+        if status:
+            self.last_image_feature.kps = next_kps
+            self.last_image_feature.features = next_features
+        return status, offset
 
     def get_stitch_by_offset(self):
         """
@@ -346,6 +348,17 @@ class VideoStitch(Method):
             fuse_region = image_fusion.fuse_by_multi_band_blending([last_rfr, next_rfr])
         return fuse_region
 
+    def get_roi_region_for_incre(self, input_image):
+        """
+        获得图像的roi区域，由于视频拼接，前后两帧位移不明显，所以两张图片上部分的偏移量等同于整张图偏移量
+        :param input_image: 输入图像
+        :return: 感兴趣区域
+        """
+        row, col = input_image.shape[:2]
+        search_len = np.floor(row * self.roi_ratio).astype(int)
+        roi_region = input_image[0: search_len, :]
+        return roi_region
+
     def get_offset_by_mode(self, last_kps, next_kps, matches):
         """
         通过众数的方法求取位移
@@ -459,7 +472,7 @@ class VideoStitch(Method):
         """
         给定一张图像，求取特征点和特征描述符
         :param image: 输入图像
-        :return: kps，features， （特征点，特征描述符）
+        :return: kps，features
         """
         descriptor = None
         kps = None
@@ -504,7 +517,7 @@ class VideoStitch(Method):
         根据两张图像的特征描述符，找到相应匹配对
         :param last_features: 上一张图像特征描述符
         :param next_features: 下一张图像特征描述符
-        :return: matches， 匹配矩阵
+        :return: matches
         """
         matches = None
         if self.feature_method == "surf" or self.feature_method == "sift":
@@ -523,68 +536,54 @@ class VideoStitch(Method):
             matches = []
             for m in raw_matches:
                 matches.append((m.trainIdx, m.queryIdx))
-        # matches = None
-        # if self.is_gpu_available is False:        # CPU Mode
+        # if self.isGPUAvailable == False:        # CPU Mode
         #     # 建立暴力匹配器
-        #     if self.feature_method == "surf" or self.feature_method == "sift":
+        #     if self.featureMethod == "surf" or self.featureMethod == "sift":
         #         matcher = cv2.DescriptorMatcher_create("BruteForce")
         #         # 使用KNN检测来自A、B图的SIFT特征匹配对，K=2，返回一个列表
-        #         raw_matches = matcher.knnMatch(last_features, next_features, 2)
+        #         rawMatches = matcher.knnMatch(featuresA, featuresB, 2)
         #         matches = []
-        #         for m in raw_matches:
-        #             # 当最近距离跟次近距离的比值小于ratio值时，保留此匹配对
-        #             if len(m) == 2 and m[0].distance < m[1].distance * self.search_ratio:
+        #         for m in rawMatches:
+        #         # 当最近距离跟次近距离的比值小于ratio值时，保留此匹配对
+        #             if len(m) == 2 and m[0].distance < m[1].distance * self.searchRatio:
         #                 # 存储两个点在featuresA, featuresB中的索引值
         #                 matches.append((m[0].trainIdx, m[0].queryIdx))
-        #     elif self.feature_method == "orb":
+        #     elif self.featureMethod == "orb":
         #         matcher = cv2.DescriptorMatcher_create("BruteForce-Hamming")
-        #         raw_matches = matcher.match(last_features, next_features)
+        #         rawMatches = matcher.match(featuresA, featuresB)
         #         matches = []
-        #         for m in raw_matches:
+        #         for m in rawMatches:
         #             matches.append((m.trainIdx, m.queryIdx))
+        #     # self.printAndWrite("  The number of matches is " + str(len(matches)))
         # else:                                   # GPU Mode
-        #     if self.feature_method == "surf":
-        #         matches = self.np_to_list_for_matches(myGpuFeatures.matchDescriptors(np.array(last_features),
-        #                                                                              np.array(next_features),
-        #                                                                              2, self.search_ratio))
-        #     elif self.feature_method == "orb":
-        #         matches = self.np_to_list_for_matches(myGpuFeatures.matchDescriptors(np.array(last_features),
-        #                                                                              np.array(next_features),
-        #                                                                              3, self.orb_max_distance))
+        #     if self.featureMethod == "surf":
+        #         matches = self.npToListForMatches(myGpuFeatures.matchDescriptors(np.array(featuresA),
+        # np.array(featuresB), 2, self.searchRatio))
+        #     elif self.featureMethod == "orb":
+        #         matches = self.npToListForMatches(myGpuFeatures.matchDescriptors(np.array(featuresA),
+        # np.array(featuresB), 3, self.orbMaxDistance))
         return matches
 
     def justify_result_shape(self, pre_image, gt_image):
         """
         根据真实图像校准视频拼接的结果
         由于视频拼接和图像拼接属于两次拍摄，起始位置可能不同，因此需要校准后才能对比
-        默认图像拼接结果没有黑色区域，需要识别pre_image中所占据的最小方格
         :param pre_image: 视频拼接结果图像
         :param gt_image: 图像拼接真实图像
         :return: 校准后的视频拼接图像
         """
-        # 首先去掉pre_image中黑色的部分
-        roi_ltx, roi_lty, roi_rbx, roi_rby = 0, 0, 0, 0
-        threshold = 5
-        for index in range(pre_image.shape[1]//2, 0, -1):
-            if np.count_nonzero(pre_image[:, index] == 0) > threshold:
-                roi_lty = index
-                break
-        for index in range(pre_image.shape[1]//2, pre_image.shape[1]):
-            if np.count_nonzero(pre_image[:, index] == 0) > threshold:
-                roi_rby = index
-                break
-        pre_image = pre_image[:, roi_lty: roi_rby]
+        pre_justify_image = np.zeros(gt_image.shape, dtype=np.uint8)
         # 获取两幅图像的形状
-        pre_h, pre_w = pre_image.shape
         gt_h, gt_w = gt_image.shape
+        pre_h, pre_w = pre_image.shape
 
         # 裁剪两幅图像的ROI区域
-        pre_roi = pre_image[0: int(pre_h * self.roi_ratio), :]
-        gt_roi = gt_image[0: int(gt_h * self.roi_ratio), :]
+        gt_roi = self.get_roi_region_for_incre(gt_image)
+        pre_roi = self.get_roi_region_for_incre(pre_image)
 
         # 求取两张图像的偏移量
-        pre_kps, pre_features = self.detect_and_describe(pre_roi)
         gt_kps, gt_features = self.detect_and_describe(gt_roi)
+        pre_kps, pre_features = self.detect_and_describe(pre_roi)
 
         status = False
         offset = [0, 0]
@@ -593,64 +592,30 @@ class VideoStitch(Method):
             if self.offset_calculate == "mode":
                 (status, offset) = self.get_offset_by_mode(gt_kps, pre_kps, matches)
 
-        self.print_and_log("  Justifying two images, the offset is {}".format(offset))
+        self.print_and_log(" Justifying two images, the offset is {}".format(offset))
         if status is False:
-            self.print_and_log("  Matching error in justifying, please check, the reason is {}".format(offset))
-            return status, 0, 0
-        else:  # 对齐
-            pre_justify_image = np.zeros(pre_image.shape, dtype=np.uint8)
+            self.print_and_log("Matching error in justifying, please check, the reason is {}".format(offset))
+        else:
             dx, dy = offset
-            roi_ltx_gt, roi_lty_gt, roi_rbx_gt, roi_rby_gt, roi_ltx_pre, roi_lty_pre, roi_rbx_pre, roi_rby_pre \
-                = 0, 0, 0, 0, 0, 0, 0, 0
             if dx >= 0 and dy >= 0:
-                roi_ltx_gt = dx
-                roi_lty_gt = dy
-                roi_rbx_gt = min(pre_h + abs(dx), gt_h)
-                roi_rby_gt = min(pre_w + abs(dy), gt_w)
-                roi_ltx_pre = 0
-                roi_lty_pre = 0
-                roi_rbx_pre = min(gt_h - abs(dx), pre_h)
-                roi_rby_pre = min(gt_w - abs(dy), pre_w)
-            elif dx >= 0 > dy:
-                roi_ltx_gt = dx
-                roi_lty_gt = 0
-                roi_rbx_gt = min(pre_h + abs(dx), gt_h)
-                roi_rby_gt = min(pre_w - abs(dy), gt_w)
-                roi_ltx_pre = 0
-                roi_lty_pre = abs(dy)
-                roi_rbx_pre = min(gt_h - abs(dx), pre_h)
-                roi_rby_pre = min(gt_w + abs(dy), pre_w)
+                temp_height = min(gt_h - dx, pre_h)
+                temp_width = min(gt_w - dy, pre_w)
+                pre_justify_image[dx: dx + temp_height, dy: dy + temp_width] = pre_image[0: temp_height, 0: temp_width]
             elif dx < 0 <= dy:
-                roi_ltx_gt = 0
-                roi_lty_gt = dy
-                roi_rbx_gt = min(pre_h - abs(dx), gt_h)
-                roi_rby_gt = min(pre_w + abs(dy), gt_w)
-                roi_ltx_pre = abs(dx)
-                roi_lty_pre = 0
-                roi_rbx_pre = min(gt_h + abs(dx), pre_h)
-                roi_rby_pre = min(gt_w - abs(dy), pre_w)
+                temp_height = min(pre_h - abs(dx), gt_h)
+                temp_width = min(gt_w - dy, pre_w)
+                pre_justify_image[0: temp_height, dy: dy + temp_width] = \
+                    pre_image[abs(dx): pre_h, 0: temp_width]
+            elif dx >= 0 > dy:
+                temp_height = min(gt_h - abs(dx), pre_h)
+                temp_width = min(pre_w - abs(dy), gt_w)
+                pre_justify_image[dx: dx + temp_height, 0: temp_width] = \
+                    pre_image[0: temp_height, abs(dy): abs(dy) + temp_width]
             elif dx < 0 and dy < 0:
-                roi_ltx_gt = 0
-                roi_lty_gt = 0
-                roi_rbx_gt = min(pre_h - abs(dx), gt_h)
-                roi_rby_gt = min(pre_w - abs(dy), gt_w)
-                roi_ltx_pre = abs(dx)
-                roi_lty_pre = abs(dy)
-                roi_rbx_pre = min(gt_h + abs(dx), pre_h)
-                roi_rby_pre = min(gt_w + abs(dy), pre_w)
-            register_pre_image = pre_image[roi_ltx_pre: roi_rbx_pre, roi_lty_pre: roi_rby_pre]
-            register_gt_image = gt_image[roi_ltx_gt: roi_rbx_gt, roi_lty_gt: roi_rby_gt]
-            return status, register_pre_image, register_gt_image
-
-    def compare_result_gt(self, stitch_image, gt_image):
-        """
-        对比拼接图像和真实图像，MSE，pnsr,ssim
-        :param stitch_image:拼接图像
-        :param gt_image:结果图像
-        :return:
-        """
-        assert stitch_image.shape == gt_image.shape, "The shape of two image is not same"
-        mse_score = skimage.measure.compare_mse(stitch_image, gt_image)
-        psnr_score = skimage.measure.compare_psnr(stitch_image, gt_image)
-        ssim_score = skimage.measure.compare_ssim(stitch_image, gt_image)
-        return mse_score, psnr_score, ssim_score
+                temp_height = min(pre_h - abs(dx), gt_h)
+                temp_width = min(pre_w - abs(dy), gt_w)
+                pre_justify_image[0: temp_height, 0: temp_width] = \
+                    pre_image[abs(dx): abs(dx) + temp_height, abs(dy): abs(dy) + temp_width]
+            elif dx == 0 and dy == 0:
+                pre_justify_image = gt_image
+        return pre_justify_image

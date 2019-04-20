@@ -1,4 +1,5 @@
 import cv2
+# from old_video_stitcher import VideoStitch
 from video_stitcher import VideoStitch
 from images_stitcher import ImagesStitch
 import os
@@ -60,10 +61,10 @@ def stitch_videos():
     video_stitcher = VideoStitch()
     video_stitcher.feature_method = "surf"      # "sift","surf" or "orb"
     video_stitcher.is_gpu_available = False     # use or not use gpu
-    video_stitcher.search_ratio = 0.75           # 0.75 is common value for matches
+    video_stitcher.search_ratio = 0.75          # 0.75 is common value for matches
     video_stitcher.offset_calculate = "mode"    # "mode" or "ransac"
-    video_stitcher.offset_evaluate = 10          # 3 menas nums of matches for mode, 3.0 menas  of matches for ransac
-    video_stitcher.roi_ratio = 0.2               # roi length for stitching in first direction
+    video_stitcher.offset_evaluate = 3          # 3 menas nums of matches for mode
+    video_stitcher.roi_ratio = 0.2              # roi length for stitching in first direction
     # "not_fuse", "average", "maximum", "minimum", "fade_in_fade_out", "trigonometric", "multi_band_blending"
     video_stitcher.fuse_method = "fade_in_fade_out"
 
@@ -75,9 +76,9 @@ def stitch_videos():
                                   "origin_videos_stitch_result")
     time_arrays = np.zeros((20, 1))
     count_index = 0
-
     # Searching all sub-folders in patch_address and stitch images in each sub-folder
     for video_address in videos_address:
+
         video_name = os.path.basename(video_address).split(".")[0]
         start_time = time.time()
 
