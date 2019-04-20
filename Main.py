@@ -7,6 +7,29 @@ import time
 import numpy as np
 
 
+def register_multi_focus_images():
+    """
+    Register the images with multi-foucs, it is prepare for network training
+    """
+    image_stitcher = ImagesStitch()
+    image_stitcher.feature_method = "surf"     # "sift","surf" or "orb"
+    image_stitcher.is_gpu_available = True     # use or not use gpu
+    image_stitcher.search_ratio = 0.75          # 0.75 is common value for matches
+    image_stitcher.offset_calculate = "mode"   # "mode" or "ransac"
+    image_stitcher.offset_evaluate = 10          # 3 menas nums of matches for mode, 3.0 menas  of matches for ransac
+    image_stitcher.roi_ratio = 0.2              # roi length for stitching in first direction
+    project_address = os.getcwd()
+    origin_address = os.path.join(os.path.join(os.path.join(project_address, "datasets"), "mufoc"), "origin")
+    register_address = os.path.join(os.path.join(os.path.join(project_address, "datasets"), "mufoc"), "register")
+    sub_folders = os.listdir(origin_address)
+    for sub_folder in sub_folders:
+        input_address = os.path.join(origin_address, sub_folder)
+        output_address = os.path.join(register_address, sub_folder)
+        input_images_list = [os.path.join(input_address, item) for item in sorted(os.listdir(input_address))]
+        select_index = 4
+        image_stitcher.register_multi_focus_images(input_images_list, output_address, select_index)
+
+
 def stitch_images():
     """
     Stitching all the patches in ".\datasets\patch\"
@@ -66,7 +89,7 @@ def stitch_videos():
     video_stitcher.offset_evaluate = 3          # 3 menas nums of matches for mode
     video_stitcher.roi_ratio = 0.2              # roi length for stitching in first direction
     # "not_fuse", "average", "maximum", "minimum", "fade_in_fade_out", "trigonometric", "multi_band_blending"
-    video_stitcher.fuse_method = "fade_in_fade_out"
+    video_stitcher.fuse_method = "trigonometric"
 
     project_address = os.getcwd()
     video_folder = os.path.join(os.path.join(project_address, "datasets"), "video")
@@ -82,16 +105,16 @@ def stitch_videos():
         video_name = os.path.basename(video_address).split(".")[0]
         start_time = time.time()
 
-        status, stitch_image = video_stitcher.start_stitching(video_address, sample_rate=1)
+        stitch_image = video_stitcher.start_stitching(video_address, sample_rate=1)
 
         end_time = time.time()
         print("The total duration of video stitching is {}'s".format(end_time-start_time))
         time_arrays[count_index, 0] = end_time-start_time
         count_index = count_index + 1
-        if status:
-            output_address = os.path.join(result_address,
-                                          "origin_videos_stitch_result" + str(video_name[5:]) + ".tif")
-            cv2.imwrite(output_address, stitch_image)
+        output_address = os.path.join(result_address,
+                                      "origin_videos_stitch_result" + str(video_name[5:]) + ".tif")
+        print(output_address)
+        cv2.imwrite(output_address, stitch_image)
 
     print("Conclusion:")
     time_arrays = time_arrays.reshape((4, 5))
@@ -100,18 +123,18 @@ def stitch_videos():
         print("The mean duration for video stitching in {}th material is {}'s".format(index + 1, time_mean[index]))
 
 
-def register_and_compare():
+def register_results_and_compare():
     """
     Compare the stitching result of video and images
     The first is to register two images
     """
-    video_stitcher = VideoStitch()
-    video_stitcher.feature_method = "surf"     # "sift","surf" or "orb"
-    video_stitcher.is_gpu_available = True     # use or not use gpu
-    video_stitcher.search_ratio = 0.75          # 0.75 is common value for matches
-    video_stitcher.offset_calculate = "mode"   # "mode" or "ransac"
-    video_stitcher.offset_evaluate = 10          # 3 menas nums of matches for mode, 3.0 menas  of matches for ransac
-    video_stitcher.roi_ratio = 1.0              # roi length for stitching in first direction
+    image_stitcher = ImagesStitch()
+    image_stitcher.feature_method = "surf"     # "sift","surf" or "orb"
+    image_stitcher.is_gpu_available = True     # use or not use gpu
+    image_stitcher.search_ratio = 0.75          # 0.75 is common value for matches
+    image_stitcher.offset_calculate = "mode"   # "mode" or "ransac"
+    image_stitcher.offset_evaluate = 3          # 3 menas nums of matches for mode, 3.0 menas  of matches for ransac
+    image_stitcher.roi_ratio = 1.0              # roi length for stitching in first direction
     # use_const_offset = True
     # conset_offset = []
     project_address = os.getcwd()
@@ -130,23 +153,26 @@ def register_and_compare():
         origin_image_stitch = cv2.imread(os.path.join(images_stitch_folder, image_stitch_address), 0)
         origin_video_stitch = cv2.imread(video_stitch_address, 0)
         status, register_video_stitch, register_image_stitch = \
-            video_stitcher.justify_result_shape(origin_video_stitch, origin_image_stitch)
+            image_stitcher.register_result_shape(origin_video_stitch, origin_image_stitch)
         if status:
             cv2.imwrite(os.path.join(images_stitch_folder.replace("origin", "register"),
                                      "register_images_stitch_result_" + image_index), register_image_stitch)
             cv2.imwrite(os.path.join(videos_stitch_folder.replace("origin", "register"),
                                      "register_videos_stitch_result_" + image_index), register_video_stitch)
             mse_score, psnr_score, ssim_score = \
-                video_stitcher.compare_result_gt(register_video_stitch, register_image_stitch)
+                image_stitcher.compare_result_gt(register_video_stitch, register_image_stitch)
             total_mse.append(mse_score)
             total_psnr.append(psnr_score)
             total_ssim.append(ssim_score)
             print("  The mse is {}, psnr is {}, ssim is {}".format(mse_score, psnr_score, ssim_score))
-    print("The average mse is {}".format(np.average(total_mse)))
-    print("The average psnr is {}".format(np.average(total_psnr)))
-    print("The average ssim is {}".format(np.average(total_ssim)))
+    if len(total_mse) > 0:
+        print("The average mse is {}".format(np.average(total_mse)))
+        print("The average psnr is {}".format(np.average(total_psnr)))
+        print("The average ssim is {}".format(np.average(total_ssim)))
 
 if __name__ == "__main__":
+    register_multi_focus_images()
     # stitch_images()
-    stitch_videos()
-    # register_and_compare()
+    # stitch_videos()
+    # register_results_and_compare()
+

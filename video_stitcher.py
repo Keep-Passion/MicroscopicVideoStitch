@@ -5,7 +5,6 @@ from image_utility import Method
 from image_fusion import ImageFusion
 import time
 import myGpuFeatures
-import skimage.measure
 
 
 class VideoStitch(Method):
@@ -146,7 +145,7 @@ class VideoStitch(Method):
         self.delete_folder(sample_dir)
         self.is_available_list = None
         self.offset_list = None
-        return status, stitch_image
+        return stitch_image
 
     def calculate_offset_by_feature_in_roi(self, images):
         """
@@ -346,12 +345,13 @@ class VideoStitch(Method):
             fuse_region = image_fusion.fuse_by_multi_band_blending([last_rfr, next_rfr])
         return fuse_region
 
-    def get_offset_by_mode(self, last_kps, next_kps, matches):
+    def get_offset_by_mode(self, last_kps, next_kps, matches, use_round=True):
         """
         通过众数的方法求取位移
         :param last_kps: 上一张图像的特征点
         :param next_kps: 下一张图像的特征点
         :param matches: 匹配矩阵
+        :param use_round: 计算坐标偏移量时是否要四舍五入
         :return: 返回拼接结果图像
         """
         total_status = True
@@ -365,10 +365,12 @@ class VideoStitch(Method):
             next_pt = (next_kps[trainIdx][1], next_kps[trainIdx][0])
             if int(last_pt[0] - next_pt[0]) == 0 and int(last_pt[1] - next_pt[1]) == 0:
                 continue
-            # dx_list.append(int(round(last_pt[0] - next_pt[0])))
-            # dy_list.append(int(round(last_pt[1] - next_pt[1])))
-            dx_list.append(int(last_pt[0] - next_pt[0]))
-            dy_list.append(int(last_pt[1] - next_pt[1]))
+            if use_round:
+                dx_list.append(int(round(last_pt[0] - next_pt[0])))
+                dy_list.append(int(round(last_pt[1] - next_pt[1])))
+            else:
+                dx_list.append(int(last_pt[0] - next_pt[0]))
+                dy_list.append(int(last_pt[1] - next_pt[1]))
         if len(dx_list) == 0:
             dx_list.append(0)
             dy_list.append(0)
@@ -552,105 +554,3 @@ class VideoStitch(Method):
         #                                                                              np.array(next_features),
         #                                                                              3, self.orb_max_distance))
         return matches
-
-    def justify_result_shape(self, pre_image, gt_image):
-        """
-        根据真实图像校准视频拼接的结果
-        由于视频拼接和图像拼接属于两次拍摄，起始位置可能不同，因此需要校准后才能对比
-        默认图像拼接结果没有黑色区域，需要识别pre_image中所占据的最小方格
-        :param pre_image: 视频拼接结果图像
-        :param gt_image: 图像拼接真实图像
-        :return: 校准后的视频拼接图像
-        """
-        # 首先去掉pre_image中黑色的部分
-        roi_ltx, roi_lty, roi_rbx, roi_rby = 0, 0, 0, 0
-        threshold = 5
-        for index in range(pre_image.shape[1]//2, 0, -1):
-            if np.count_nonzero(pre_image[:, index] == 0) > threshold:
-                roi_lty = index
-                break
-        for index in range(pre_image.shape[1]//2, pre_image.shape[1]):
-            if np.count_nonzero(pre_image[:, index] == 0) > threshold:
-                roi_rby = index
-                break
-        pre_image = pre_image[:, roi_lty: roi_rby]
-        # 获取两幅图像的形状
-        pre_h, pre_w = pre_image.shape
-        gt_h, gt_w = gt_image.shape
-
-        # 裁剪两幅图像的ROI区域
-        pre_roi = pre_image[0: int(pre_h * self.roi_ratio), :]
-        gt_roi = gt_image[0: int(gt_h * self.roi_ratio), :]
-
-        # 求取两张图像的偏移量
-        pre_kps, pre_features = self.detect_and_describe(pre_roi)
-        gt_kps, gt_features = self.detect_and_describe(gt_roi)
-
-        status = False
-        offset = [0, 0]
-        if pre_features is not None and gt_features is not None:
-            matches = self.match_descriptors(gt_features, pre_features)
-            if self.offset_calculate == "mode":
-                (status, offset) = self.get_offset_by_mode(gt_kps, pre_kps, matches)
-
-        self.print_and_log("  Justifying two images, the offset is {}".format(offset))
-        if status is False:
-            self.print_and_log("  Matching error in justifying, please check, the reason is {}".format(offset))
-            return status, 0, 0
-        else:  # 对齐
-            pre_justify_image = np.zeros(pre_image.shape, dtype=np.uint8)
-            dx, dy = offset
-            roi_ltx_gt, roi_lty_gt, roi_rbx_gt, roi_rby_gt, roi_ltx_pre, roi_lty_pre, roi_rbx_pre, roi_rby_pre \
-                = 0, 0, 0, 0, 0, 0, 0, 0
-            if dx >= 0 and dy >= 0:
-                roi_ltx_gt = dx
-                roi_lty_gt = dy
-                roi_rbx_gt = min(pre_h + abs(dx), gt_h)
-                roi_rby_gt = min(pre_w + abs(dy), gt_w)
-                roi_ltx_pre = 0
-                roi_lty_pre = 0
-                roi_rbx_pre = min(gt_h - abs(dx), pre_h)
-                roi_rby_pre = min(gt_w - abs(dy), pre_w)
-            elif dx >= 0 > dy:
-                roi_ltx_gt = dx
-                roi_lty_gt = 0
-                roi_rbx_gt = min(pre_h + abs(dx), gt_h)
-                roi_rby_gt = min(pre_w - abs(dy), gt_w)
-                roi_ltx_pre = 0
-                roi_lty_pre = abs(dy)
-                roi_rbx_pre = min(gt_h - abs(dx), pre_h)
-                roi_rby_pre = min(gt_w + abs(dy), pre_w)
-            elif dx < 0 <= dy:
-                roi_ltx_gt = 0
-                roi_lty_gt = dy
-                roi_rbx_gt = min(pre_h - abs(dx), gt_h)
-                roi_rby_gt = min(pre_w + abs(dy), gt_w)
-                roi_ltx_pre = abs(dx)
-                roi_lty_pre = 0
-                roi_rbx_pre = min(gt_h + abs(dx), pre_h)
-                roi_rby_pre = min(gt_w - abs(dy), pre_w)
-            elif dx < 0 and dy < 0:
-                roi_ltx_gt = 0
-                roi_lty_gt = 0
-                roi_rbx_gt = min(pre_h - abs(dx), gt_h)
-                roi_rby_gt = min(pre_w - abs(dy), gt_w)
-                roi_ltx_pre = abs(dx)
-                roi_lty_pre = abs(dy)
-                roi_rbx_pre = min(gt_h + abs(dx), pre_h)
-                roi_rby_pre = min(gt_w + abs(dy), pre_w)
-            register_pre_image = pre_image[roi_ltx_pre: roi_rbx_pre, roi_lty_pre: roi_rby_pre]
-            register_gt_image = gt_image[roi_ltx_gt: roi_rbx_gt, roi_lty_gt: roi_rby_gt]
-            return status, register_pre_image, register_gt_image
-
-    def compare_result_gt(self, stitch_image, gt_image):
-        """
-        对比拼接图像和真实图像，MSE，pnsr,ssim
-        :param stitch_image:拼接图像
-        :param gt_image:结果图像
-        :return:
-        """
-        assert stitch_image.shape == gt_image.shape, "The shape of two image is not same"
-        mse_score = skimage.measure.compare_mse(stitch_image, gt_image)
-        psnr_score = skimage.measure.compare_psnr(stitch_image, gt_image)
-        ssim_score = skimage.measure.compare_ssim(stitch_image, gt_image)
-        return mse_score, psnr_score, ssim_score

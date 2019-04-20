@@ -1,6 +1,6 @@
 import cv2
 import os
-
+import shutil
 
 class Method:
     # 关于 GPU 加速的设置
@@ -45,14 +45,7 @@ class Method:
         :param dir_address: 文件夹目录
         :return:
         """
-        file_list = os.listdir(dir_address)
-        file_num = len(file_list)
-        if file_num != 0:
-            for i in range(file_num):
-                path = os.path.join(dir_address, file_list[i])
-                if os.path.isdir(path) is False:
-                    os.remove(path)
-        os.rmdir(dir_address)
+        shutil.rmtree(dir_address)
 
     @staticmethod
     def resize_image(origin_image, resize_times, inter_method=cv2.INTER_AREA):
