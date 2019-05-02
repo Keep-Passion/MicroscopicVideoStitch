@@ -38,7 +38,7 @@ def stitch_images():
     image_stitcher = ImagesStitch()
     image_stitcher.feature_method = "surf"     # "sift","surf" or "orb"
     image_stitcher.is_gpu_available = False     # use or not use gpu
-    image_stitcher.search_ratio = 0.85          # 0.75 is common value for matches
+    image_stitcher.search_ratio = 0.75          # 0.75 is common value for matches
     image_stitcher.offset_calculate = "mode"   # "mode" or "ransac"
     image_stitcher.offset_evaluate = 10          # 3 menas nums of matches for mode, 3.0 menas  of matches for ransac
     image_stitcher.roi_ratio = 1              # roi length for stitching in first direction
@@ -84,7 +84,7 @@ def stitch_videos(fuse_method="trigonometric", use_pre_calculate=True):
     """
     video_stitcher = VideoStitch()
     video_stitcher.feature_method = "surf"      # "sift","surf" or "orb"
-    video_stitcher.is_gpu_available = True     # use or not use gpu
+    video_stitcher.is_gpu_available = False     # use or not use gpu
     video_stitcher.search_ratio = 0.75          # 0.75 is common value for matches
     video_stitcher.offset_calculate = "mode"    # "mode" or "ransac"
     video_stitcher.offset_evaluate = 10        # 3 menas nums of matches for mode
@@ -156,7 +156,7 @@ def stitch_videos(fuse_method="trigonometric", use_pre_calculate=True):
                     "\\" + os.path.basename(output_address))
         cv2.imwrite("D:\\VideoStitch\\different_method\\" + video_stitcher.fuse_method +
                     "\\" + os.path.basename(output_address), stitch_image)
-
+        del stitch_image
     print("Conclusion:")
     time_arrays = time_arrays.reshape((3, 5))
     time_mean = np.average(time_arrays, axis=1)
@@ -237,11 +237,11 @@ def register_results_and_compare(description, use_pre_calculate=True):
 
 
 if __name__ == "__main__":
-    # register_multi_focus_images()
-    # stitch_images()
+    register_multi_focus_images()
+    stitch_images()
     # "not_fuse", "average", "maximum", "minimum", "fade_in_fade_out",
     # "trigonometric", "multi_band_blending", "spatial_frequency"
     fuse_method = "trigonometric"
-    stitch_videos(fuse_method, use_pre_calculate=True)
+    stitch_videos(fuse_method, use_pre_calculate=False)
     description = fuse_method
     register_results_and_compare(description, use_pre_calculate=False)

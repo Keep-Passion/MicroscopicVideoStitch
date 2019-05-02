@@ -74,7 +74,7 @@ class VideoStitch(Method):
                                   cv2.IMREAD_GRAYSCALE)
         self.image_shape = temp_image.shape
         self.print_and_log("start matching")
-
+        del temp_image
         start_time = time.time()
         if use_pre_calculate:
             self.is_available_list = pre_calculate_available
@@ -105,6 +105,7 @@ class VideoStitch(Method):
                     self.print_and_log("    {}th frame can be stitched, the offset is {}".format(file_index, offset))
                     self.is_available_list.append(True)
                     self.offset_list.append(offset)
+                del last_image, next_image
         record_offset_list = copy.deepcopy(self.offset_list)
 
         end_time = time.time()
@@ -268,11 +269,13 @@ class VideoStitch(Method):
                     last_roi_fuse_region = stitch_result[roi_ltx:roi_rbx, roi_lty:roi_rby].copy()
                     stitch_result[
                         self.offset_list[i][0]: self.offset_list[i][0] + image.shape[0],
-                        self.offset_list[i][1]: self.offset_list[i][1] + image.shape[1]] = image
+                        self.offset_list[i][1]: self.offset_list[i][1] + image.shape[1]] = image.copy()
                     next_roi_fuse_region = stitch_result[roi_ltx:roi_rbx, roi_lty:roi_rby].copy()
                     stitch_result[roi_ltx:roi_rbx, roi_lty:roi_rby] = self.fuse_image(
                         [last_roi_fuse_region, next_roi_fuse_region],
                         [offset_list_origin[i][0], offset_list_origin[i][1]])
+                    del last_roi_fuse_region, next_roi_fuse_region
+            del image
         stitch_result[stitch_result == -1] = 0
         return stitch_result.astype(np.uint8)
 

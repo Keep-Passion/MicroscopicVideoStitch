@@ -269,7 +269,6 @@ class ImagesStitch(Method):
             self.print_and_log("  Matching error in justifying, please check, the reason is {}".format(offset))
             return status, 0, 0, 0
         else:  # 对齐
-            pre_justify_image = np.zeros(pre_image.shape, dtype=np.uint8)
             dx, dy = offset
             roi_ltx_gt, roi_lty_gt, roi_rbx_gt, roi_rby_gt, roi_ltx_pre, roi_lty_pre, roi_rbx_pre, roi_rby_pre \
                 = 0, 0, 0, 0, 0, 0, 0, 0
@@ -421,13 +420,13 @@ class ImagesStitch(Method):
                 if not lines:
                     break
                 if lines.startswith("###-"):
-                    count = 0
                     continue
                 lines = lines.strip('\n')
                 temp_offset = []
                 for item in lines.split(","):
                     temp = item.split(" ")
-                    temp_offset.append([int(temp[0]), int(temp[1])])
+                    temp_offset.append(int(temp[0]))
+                    temp_offset.append(int(temp[1]))
                 offset_list.append(temp_offset)
         return offset_list
 
