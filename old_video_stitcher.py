@@ -4,7 +4,6 @@ import os
 from image_utility import Method
 from image_fusion import ImageFusion
 import time
-import myGpuFeatures
 
 
 class ImageFeature:

@@ -1,11 +1,10 @@
 ﻿import numpy as np
 import cv2
 import os
-from image_utility import Method
+from utility import Method
 from image_fusion import ImageFusion
 import time
-import myGpuFeatures
-
+import copy
 
 class VideoStitch(Method):
     """
@@ -13,58 +12,30 @@ class VideoStitch(Method):
     """
     image_shape = None
     offset_list = []
+    # record_offset_list = []
     is_available_list = []
     images_address_list = None
-
-    # 关于图像增强的操作
-    is_enhance = False
-    is_clahe = False
-    clip_limit = 20
-    tile_size = 5
-
-    # 关于特征搜索的设置
-    roi_ratio = 0.2
-    feature_method = "surf"  # "sift","surf" or "orb"
-    search_ratio = 0.75  # 0.75 is common value for matches
-
-    # 关于特征配准的设置
-    offset_calculate = "mode"  # "mode" or "ransac"
-    offset_evaluate = 5
-
-    # 关于 GPU-SURF 的设置
-    surf_hessian_threshold = 100.0
-    surf_n_octaves = 4
-    surf_n_octave_layers = 3
-    surf_is_extended = True
-    surf_key_points_ratio = 0.01
-    surf_is_upright = False
-
-    # 关于 GPU-ORB 的设置
-    orb_n_features = 5000
-    orb_scale_factor = 1.2
-    orb_n_levels = 8
-    orb_edge_threshold = 31
-    orb_first_level = 0
-    orb_wta_k = 2
-    orb_patch_size = 31
-    orb_fast_threshold = 20
-    orb_blur_for_descriptor = False
-    orb_max_distance = 30
 
     # 关于融合方法的设置
     fuse_method = "not_fuse"
 
-    def start_stitching(self, video_address, sample_rate=1):
+    def start_stitching(self, video_address, sample_rate=1, use_pre_calculate=False,
+                        pre_calculate_available = None, pre_calculate_offset=None, pre_register_time=None):
         """
         stitching the video
         :param video_address: 视频地址
         :param sample_rate: 视频采样帧率
+        :param use_pre_calculate: 是否使用预先计算的偏移量
+        :param pre_calculate_available: 预先计算的可用list
+        :param pre_calculate_offset: 预先计算的的偏移量
+        :param pre_register_times: 预先计算的配准时间
         :return: 返回拼接后的图像，ndarry
         """
         # *********** 对视频采样，将采样的所有图像输出到与视频文件同目录的temp文件夹 ***********
         # 建立 temp 文件夹
         input_dir = os.path.dirname(video_address)
-        sample_dir = os.path.join(input_dir, "temp")
+        video_name = os.path.basename(video_address).split(".")[0]
+        sample_dir = os.path.join(input_dir, "temp_" + video_name)
 
         # 将 video 采样到 temp 文件夹
         self.print_and_log("Video name:" + video_address)
@@ -87,7 +58,8 @@ class VideoStitch(Method):
                 break
             frame_num = frame_num + 1
             if frame_num % sample_rate == 0:
-                gray_frame = cv2.cvtColor(origin_frame, cv2.COLOR_BGR2GRAY)
+                # 由于视频采集最后一行默认为0，所以需要去掉
+                gray_frame = cv2.cvtColor(origin_frame, cv2.COLOR_BGR2GRAY)[:-2, :]
                 save_num = save_num + 1
                 cv2.imwrite(os.path.join(sample_dir, str(save_num).zfill(10) + ".png"), gray_frame)
         cap.release()
@@ -98,42 +70,52 @@ class VideoStitch(Method):
         # # 开始拼接文件夹下的图片
         dirs = sorted(os.listdir(sample_dir), key=lambda i: int(i.split(".")[0]))
         self.images_address_list = [os.path.join(sample_dir, item) for item in dirs]
+        temp_image = cv2.imdecode(np.fromfile(self.images_address_list[0], dtype=np.uint8),
+                                  cv2.IMREAD_GRAYSCALE)
+        self.image_shape = temp_image.shape
         self.print_and_log("start matching")
-        # self.image_shape = (1200, 1600)
 
         start_time = time.time()
+        if use_pre_calculate:
+            self.is_available_list = pre_calculate_available
+            self.offset_list = pre_calculate_offset
+        else:
+            self.is_available_list.append(True)
+            for file_index in range(1, len(self.images_address_list)):
+                self.print_and_log("    Analyzing {}th frame and the name is {}".format(file_index, os.path.basename(
+                    self.images_address_list[file_index])))
+                # 获得上一次可用的编号,不是所有帧都是有用的，所以在寻找时需要过滤
+                # 先找到 is_available_list 中最后一个True的索引，在减去目前索引到其距离
+                temp_available_list = self.is_available_list.copy()
+                temp_available_list.reverse()
+                last_file_index = file_index - temp_available_list.index(True) - 1
+                # self.print_and_log("  The last file index is {}, the next file index is {}"
+                #                    .format(last_file_index, file_index))
+                last_image = cv2.imdecode(np.fromfile(self.images_address_list[last_file_index], dtype=np.uint8),
+                                          cv2.IMREAD_GRAYSCALE)
+                next_image = cv2.imdecode(np.fromfile(self.images_address_list[file_index], dtype=np.uint8),
+                                          cv2.IMREAD_GRAYSCALE)
+                self.image_shape = last_image.shape
+                status, offset = self.calculate_offset_by_feature_in_roi([last_image, next_image])
+                if status is False:
+                    self.print_and_log("    {}th frame can not be stitched, the reason is {}".format(file_index, offset))
+                    self.is_available_list.append(False)
+                    self.offset_list.append([0, 0])
+                else:
+                    self.print_and_log("    {}th frame can be stitched, the offset is {}".format(file_index, offset))
+                    self.is_available_list.append(True)
+                    self.offset_list.append(offset)
+        record_offset_list = copy.deepcopy(self.offset_list)
 
-        self.is_available_list.append(True)
-        status = False
-        for file_index in range(1, len(self.images_address_list)):
-            self.print_and_log("    Analyzing {}th frame and the name is {}".format(file_index, os.path.basename(
-                self.images_address_list[file_index])))
-            # 获得上一次可用的编号,不是所有帧都是有用的，所以在寻找时需要过滤
-            # 先找到 is_available_list 中最后一个True的索引，在减去目前索引到其距离
-            temp_available_list = self.is_available_list.copy()
-            temp_available_list.reverse()
-            last_file_index = file_index - temp_available_list.index(True) - 1
-            # self.print_and_log("  The last file index is {}, the next file index is {}"
-            #                    .format(last_file_index, file_index))
-            last_image = cv2.imdecode(np.fromfile(self.images_address_list[last_file_index], dtype=np.uint8),
-                                      cv2.IMREAD_GRAYSCALE)
-            next_image = cv2.imdecode(np.fromfile(self.images_address_list[file_index], dtype=np.uint8),
-                                      cv2.IMREAD_GRAYSCALE)
-            self.image_shape = last_image.shape
-            status, offset = self.calculate_offset_by_feature_in_roi([last_image, next_image])
-            if status is False:
-                self.print_and_log("    {}th frame can not be stitched, the reason is {}".format(file_index, offset))
-                self.is_available_list.append(False)
-                self.offset_list.append([0, 0])
-            else:
-                self.print_and_log("    {}th frame can be stitched, the offset is {}".format(file_index, offset))
-                self.is_available_list.append(True)
-                self.offset_list.append(offset)
         end_time = time.time()
-        self.print_and_log("The time of registering is {:.3f} \'s".format(end_time - start_time))
+        if use_pre_calculate:
+            self.print_and_log("The time of registering is {:.3f} \'s".format(end_time - start_time + pre_register_time))
+        else:
+            self.print_and_log("The time of registering is {:.3f} \'s".format(end_time - start_time))
         self.print_and_log("is_available_list:{}".format(self.is_available_list))
         self.print_and_log("offset_list:{}".format(self.offset_list))
-
+        self.print_and_log("len is_available_list:{}".format(len(self.is_available_list)))
+        self.print_and_log("len offset_list:{}".format(len(self.offset_list)))
         # self.offset_list = [[1, 0], [-2, 0], [1, 0], [-1, 0], [1, 0], [0, -1], [3, 1], [0, -1], [0, 1], [0, -1], [0, 1], [0, -1], [-1, 0], [-1, 0], [1, 0], [1, 0], [1, 0], [8, 2], [11, 1], [33, 6], [34, 7], [69, 14], [12, 2], [2, 0], [2, 0], [0, -1], [-1, 0], [0, 1], [-1, 0], [-1, 0], [-1, 0], [-1, 0], [1, 0], [1, 0], [1, 0], [1, 0], [1, 0], [5, 1], [2, 0], [3, 0], [12, 2], [0, 0], [87, 18], [7, 1], [3, 0], [2, 0], [1, 0], [1, 0], [0, -1], [0, -1], [0, 1], [-1, 0], [0, -1], [-1, 0], [0, 1], [1, 0], [0, 1], [0, 1], [0, -1], [1, 0], [1, 0], [1, 0], [1, 0], [1, 0], [0, 1], [0, 1], [1, 0], [1, 0], [1, 0], [1, 0], [1, 0], [4, 1], [4, 1], [2, 0], [1, 0], [1, 0], [5, -3], [4, -3], [1, 0], [1, 0], [-3, 0], [1, 0], [4, 1], [2, 0], [4, 0], [2, 0], [4, 0], [3, 1], [5, 0], [7, -2], [6, -1], [-7, -1], [1, 0], [2, 0], [0, 1], [-1, -1], [-1, 0], [0, 1], [0, -1], [1, 0], [-1, 0], [0, -1], [1, 0], [0, 1], [1, 0], [1, 0], [10, 2], [4, 0], [1, 0], [1, 0], [0, -1], [3, 1], [1, 0], [-4, -1], [-1, 0], [1, 0], [1, 0], [2, 0], [4, 1], [6, 1], [27, 0], [0, 0], [258, 39], [23, -13], [0, 1], [0, -1], [1, 0], [-1, 0], [-1, 0], [-1, 0], [-1, 0], [1, 0], [2, 0], [1, 0], [0, -1], [0, 1], [-1, 0], [1, 0], [1, 0], [1, 0], [0, -1], [-1, 0], [1, 0], [-1, 0], [1, 0], [4, 0], [0, -1], [0, -1], [1, 0], [12, -11], [1, 0], [-1, 0], [-1, 0], [-2, 0], [-1, 0], [-3, 0], [-2, 0], [0, 1], [0, -1], [0, 1], [-1, 0], [0, -1], [0, 1], [0, 1], [1, 0], [-1, 0], [-1, 0], [0, -1], [0, 1], [1, 0], [1, 0], [0, 1], [-1, 0], [0, 1], [1, 0], [0, -1], [1, 0], [0, 1], [0, -1], [1, 0], [0, 1], [1, 0], [8, 1], [1, 0], [3, -1], [4, -2], [9, -7], [4, -6], [0, -2], [-7, -3], [7, 1], [2, 0], [-5, -1], [1, 0], [1, 0], [1, 0], [-1, 0], [1, 0], [-1, 0], [-6, -1], [2, 0], [12, -3], [3, -2], [6, -6], [3, -2], [6, -5], [10, -9], [6, -5], [2, -3], [1, 0], [2, 0], [4, -3], [17, -15], [1, -1], [1, 0], [2, 0], [2, -3], [2, 0], [1, 0], [0, -1], [1, 0], [1, 0], [1, 0], [-2, 0], [-7, -1], [1, 0], [1, 0], [1, 0], [0, -1], [1, 0], [4, 1], [9, 1], [6, 1], [9, 1], [17, 4], [20, 4], [11, 2], [7, 1], [4, 1], [0, -1], [1, 0], [0, -1], [0, -1], [1, 0], [0, 1], [0, 1], [1, 0], [1, 0], [1, 0], [0, 1], [1, 0], [0, -1], [0, 1], [0, -1], [1, 0], [1, 0], [0, -1], [1, 0], [-1, 0], [0, 1], [1, 0], [1, 0], [1, 0], [1, 0], [-1, 0], [1, 0], [1, 0], [0, 1], [1, 0], [1, 0], [0, 1], [0, -1], [-1, 0], [0, 1], [1, 0], [1, 0], [1, 0], [0, 1], [0, -1], [0, -1], [0, 1], [-1, 0], [1, 0], [0, 1], [0, -1], [0, -1], [1, 0], [0, 1], [0, 1], [0, -1], [1, 0], [1, 1], [3, 0], [0, 0], [0, 0], [258, 57], [14, 3], [7, 0], [1, 0], [-6, -1], [-7, -1], [-1, 0], [3, 0], [5, 0], [-3, 0], [-1, 0], [6, 0], [-1, 0], [-7, -1], [-1, 0], [-1, 0], [1, 0], [0, -1], [0, 1], [0, 1], [0, 1], [0, 1], [0, -1], [0, -1], [0, -1], [0, -1], [0, 1], [0, 1], [0, -1], [-1, 0], [0, 1], [0, -1], [0, 1], [0, -1], [0, -1], [0, 1], [0, 1], [1, 0], [1, 0], [0, 1], [0, 1], [-1, 0], [0, 1], [0, -1], [0, -1], [0, 1], [1, 0], [0, -1], [0, 1], [0, -1], [0, 1], [-1, 0], [0, -1], [8, 1], [5, 1], [0, 1], [0, -1], [0, 1], [0, 1], [0, -1], [0, 1], [0, 1], [-1, 0], [0, -1], [0, 1], [0, -1], [1, 0], [1, 0], [0, -1], [-1, 0], [0, -1], [0, -1], [-1, 0], [1, 0], [1, 0], [0, 1], [0, -1], [0, -1], [0, 1]]
         # self.is_available_list = [True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, False, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, False, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, False, False, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True, True]
         # # *************************** 融合及拼接 ***************************
@@ -143,9 +125,10 @@ class VideoStitch(Method):
         end_time = time.time()
         self.print_and_log("The time of fusing is {:.3f} \'s".format(end_time - start_time))
         self.delete_folder(sample_dir)
-        self.is_available_list = None
-        self.offset_list = None
-        return stitch_image
+        record_available_list = self.is_available_list
+        self.is_available_list = []
+        self.offset_list = []
+        return stitch_image, record_available_list, record_offset_list
 
     def calculate_offset_by_feature_in_roi(self, images):
         """
@@ -193,22 +176,6 @@ class VideoStitch(Method):
             return status, offset
         else:
             return status, "there are one image have no features"
-
-    def calculate_feature(self, input_image):
-        """
-        计算图像特征点
-        :param input_image: 输入图像
-        :return: kps, features 返回特征点，及其相应特征描述符
-        """
-        # 判断是否有增强
-        if self.is_enhance:
-            if self.is_clahe:
-                clahe = cv2.createCLAHE(clipLimit=self.clip_limit, tileGridSize=(self.tile_size, self.tile_size))
-                input_image = clahe.apply(input_image)
-            elif self.is_clahe is False:
-                input_image = cv2.equalizeHist(input_image)
-        kps, features = self.detect_and_describe(input_image)
-        return kps, features
 
     def get_stitch_by_offset(self):
         """
@@ -267,8 +234,6 @@ class VideoStitch(Method):
         # print(len(self.offset_list))
         # 如上算出各个图像相对于原点偏移量，并最终计算出输出图像大小，并构造矩阵，如下开始赋值
         for i in range(0, len(self.offset_list)):
-            # print(i)
-            # print(self.offset_list[i])
             if self.is_available_list[i] is False:
                 continue
             image = cv2.imdecode(np.fromfile(self.images_address_list[i], dtype=np.uint8), cv2.IMREAD_GRAYSCALE)
@@ -341,216 +306,98 @@ class VideoStitch(Method):
             fuse_region = image_fusion.fuse_by_fade_in_and_fade_out(overlap_rfrs, dx, dy)
         elif self.fuse_method == "trigonometric":
             fuse_region = image_fusion.fuse_by_trigonometric(overlap_rfrs, dx, dy)
+        elif self.fuse_method == "spatial_frequency":
+            fuse_region = image_fusion.fuse_by_spatial_frequency([last_rfr, next_rfr])
         elif self.fuse_method == "multi_band_blending":
             fuse_region = image_fusion.fuse_by_multi_band_blending([last_rfr, next_rfr])
         return fuse_region
 
-    def get_offset_by_mode(self, last_kps, next_kps, matches, use_round=True):
-        """
-        通过众数的方法求取位移
-        :param last_kps: 上一张图像的特征点
-        :param next_kps: 下一张图像的特征点
-        :param matches: 匹配矩阵
-        :param use_round: 计算坐标偏移量时是否要四舍五入
-        :return: 返回拼接结果图像
-        """
-        total_status = True
-        if len(matches) == 0:
-            total_status = False
-            return total_status, "the two images have no matches"
-        dx_list = []
-        dy_list = []
-        for trainIdx, queryIdx in matches:
-            last_pt = (last_kps[queryIdx][1], last_kps[queryIdx][0])
-            next_pt = (next_kps[trainIdx][1], next_kps[trainIdx][0])
-            if int(last_pt[0] - next_pt[0]) == 0 and int(last_pt[1] - next_pt[1]) == 0:
-                continue
-            if use_round:
-                dx_list.append(int(round(last_pt[0] - next_pt[0])))
-                dy_list.append(int(round(last_pt[1] - next_pt[1])))
-            else:
-                dx_list.append(int(last_pt[0] - next_pt[0]))
-                dy_list.append(int(last_pt[1] - next_pt[1]))
-        if len(dx_list) == 0:
-            dx_list.append(0)
-            dy_list.append(0)
-        # Get Mode offset in [dxList, dyList], thanks for clovermini
-        zipped = zip(dx_list, dy_list)
-        zip_list = list(zipped)
-        zip_dict = dict((a, zip_list.count(a)) for a in zip_list)
-        zip_dict_sorted = dict(sorted(zip_dict.items(), key=lambda x: x[1], reverse=True))
-        dx = list(zip_dict_sorted)[0][0]
-        dy = list(zip_dict_sorted)[0][1]
-        num = zip_dict_sorted[list(zip_dict_sorted)[0]]
-        if num < self.offset_evaluate:
-            total_status = False
-            return total_status, "the two images have less common offset"
-        else:
-            return total_status, [dx, dy]
-
-    def get_offset_by_ransac(self, last_kps, next_kps, matches):
-        """
-        通过ransac方法求取位移
-        :param last_kps: 上一张图像的特征点
-        :param next_kps: 下一张图像的特征点
-        :param matches: 匹配矩阵
-        :return: 返回拼接结果图像
-        """
-        total_status = False
-        last_pts = np.float32([last_kps[i] for (_, i) in matches])
-        next_pts = np.float32([next_kps[i] for (i, _) in matches])
-        if len(matches) == 0:
-            return total_status, [0, 0], 0
-        (H, status) = cv2.findHomography(last_pts, next_pts, cv2.RANSAC, 3, 0.9)
-        true_count = 0
-        for i in range(0, len(status)):
-            if status[i]:
-                true_count = true_count + 1
-        if true_count >= self.offset_evaluate:
-            total_status = True
-            adjust_h = H.copy()
-            adjust_h[0, 2] = 0
-            adjust_h[1, 2] = 0
-            adjust_h[2, 0] = 0
-            adjust_h[2, 1] = 0
-            return total_status, [np.round(np.array(H).astype(np.int)[1, 2]) * (-1),
-                                  np.round(np.array(H).astype(np.int)[0, 2]) * (-1)], adjust_h
-        else:
-            return total_status, [0, 0], 0
-
     @staticmethod
-    def np_to_list_for_keypoints(array):
-        """
-        GPU返回numpy形式的特征点，转成list形式
-        :param array:
+    def record_video_stitch_parameters(output_dir, video_name, available_list, offset_list, register_time):
+        '''
+        Write parameters in video stitch
+        :param output_dir: the address of record file
+        :param video_name: str
+        :param available_list: like [True, False]
+        :param offset_list: like [[20, 30], [-1, -2]]
+        :param register_time: float, time of finding feature and matching
         :return:
-        """
-        kps = []
-        row, col = array.shape
-        for i in range(row):
-            kps.append([array[i, 0], array[i, 1]])
-        return kps
+        '''
+        file_address = os.path.join(output_dir, "video_stitch_record.txt")
+        f = open(file_address, "a")
+        f.write("###-" + video_name)
+        f.write("\n")
+        temp = [str(1) if item else str(0) for item in available_list]
+        f.write(",".join(temp))
+        f.write("\n")
+        temp = ""
+        for item in offset_list:
+            temp = temp + str(item[0]) + " " + str(item[1]) + ","
+        f.write(temp[:-1])
+        f.write("\n")
+        f.write(str(register_time))
+        f.write("\n")
+        f.close()
 
-    @staticmethod
-    def np_to_list_for_matches(array):
-        """
-        GPU返回numpy形式的匹配对，转成list形式
-        :param array:
-        :return:
-        """
-        descriptors = []
-        row, col = array.shape
-        for i in range(row):
-            descriptors.append((array[i, 0], array[i, 1]))
-        return descriptors
+    def read_video_stitch_parameters(self, input_address):
+        '''
+        Read the record with video stitch parameters
+        :param input_address: record file address
+        :return: available_list, offset_list, register_time_list
+        '''
+        available_list = []
+        offset_list = []
+        register_time_list =[]
+        if os.path.exists(input_address) is False:
+            self.print_and_log("There is no record file with video parameters to read")
+            return available_list, offset_list, register_time_list
+        count = 0   # using count to judge which value to read, 0 is available_list, 1 is offset_list and 2 is time
+        with open(input_address, 'r') as f:
+            while True:
+                lines = f.readline()
+                if not lines:
+                    break
+                if lines.startswith("###-"):
+                    count = 0
+                    continue
+                lines = lines.strip('\n')
+                if count == 0:
+                    temp_available = []
+                    for item in lines.split(","):
+                        if item == "0":
+                            temp_available.append(False)
+                        elif item == "1":
+                            temp_available.append(True)
+                    available_list.append(temp_available)
+                    count += 1
+                elif count == 1:
+                    temp_offset = []
+                    for item in lines.split(","):
+                        temp = item.split(" ")
+                        temp_offset.append([int(temp[0]), int(temp[1])])
+                    offset_list.append(temp_offset)
+                    count += 1
+                elif count == 2:
+                    register_time_list.append(float(lines))
+        return available_list, offset_list, register_time_list
 
-    @staticmethod
-    def np_to_kps_and_descriptors(array):
-        """
-        GPU返回numpy形式的kps，descripotrs，转成list形式
-        :param array:
-        :return:
-        """
-        kps = []
-        descriptors = array[:, :, 1]
-        for i in range(array.shape[0]):
-            kps.append([array[i, 0, 0], array[i, 1, 0]])
-        return kps, descriptors
-
-    def detect_and_describe(self, image):
-        """
-        给定一张图像，求取特征点和特征描述符
-        :param image: 输入图像
-        :return: kps，features， （特征点，特征描述符）
-        """
-        descriptor = None
-        kps = None
-        features = None
-        if self.is_gpu_available is False:  # CPU mode
-            if self.feature_method == "sift":
-                descriptor = cv2.xfeatures2d.SIFT_create()
-            elif self.feature_method == "surf":
-                descriptor = cv2.xfeatures2d.SURF_create()
-            elif self.feature_method == "orb":
-                descriptor = cv2.ORB_create(self.orb_n_features, self.orb_scale_factor, self.orb_n_levels,
-                                            self.orb_edge_threshold, self.orb_first_level, self.orb_wta_k, 0,
-                                            self.orb_patch_size, self.orb_fast_threshold)
-            # 检测SIFT特征点，并计算描述子
-            kps, features = descriptor.detectAndCompute(image, None)
-            # 将结果转换成NumPy数组
-            kps = np.float32([kp.pt for kp in kps])
-        else:  # GPU mode
-            if self.feature_method == "sift":
-                # 目前GPU-SIFT尚未开发，先采用CPU版本的替代
-                descriptor = cv2.xfeatures2d.SIFT_create()
-                kps, features = descriptor.detectAndCompute(image, None)
-                kps = np.float32([kp.pt for kp in kps])
-            elif self.feature_method == "surf":
-                kps, features = self.np_to_kps_and_descriptors(
-                    myGpuFeatures.detectAndDescribeBySurf(image, self.surf_hessian_threshold,
-                                                          self.surf_n_octaves, self.surf_n_octave_layers,
-                                                          self.surf_is_extended, self.surf_key_points_ratio,
-                                                          self.surf_is_upright))
-            elif self.feature_method == "orb":
-                kps, features = self.np_to_kps_and_descriptors(
-                    myGpuFeatures.detectAndDescribeByOrb(image, self.orb_n_features, self.orb_scale_factor,
-                                                         self.orb_n_levels, self.orb_edge_threshold,
-                                                         self.orb_first_level, self.orb_wta_k, 0,
-                                                         self.orb_patch_size, self.orb_fast_threshold,
-                                                         self.orb_blur_for_descriptor))
-        # 返回特征点集，及对应的描述特征
-        return kps, features
-
-    def match_descriptors(self, last_features, next_features):
-        """
-        根据两张图像的特征描述符，找到相应匹配对
-        :param last_features: 上一张图像特征描述符
-        :param next_features: 下一张图像特征描述符
-        :return: matches， 匹配矩阵
-        """
-        matches = None
-        if self.feature_method == "surf" or self.feature_method == "sift":
-            matcher = cv2.DescriptorMatcher_create("BruteForce")
-            # 使用KNN检测来自A、B图的SIFT特征匹配对，K=2，返回一个列表
-            raw_matches = matcher.knnMatch(last_features, next_features, 2)
-            matches = []
-            for m in raw_matches:
-                # 当最近距离跟次近距离的比值小于ratio值时，保留此匹配对
-                if len(m) == 2 and m[0].distance < m[1].distance * self.search_ratio:
-                    # 存储两个点在featuresA, featuresB中的索引值
-                    matches.append((m[0].trainIdx, m[0].queryIdx))
-        elif self.feature_method == "orb":
-            matcher = cv2.DescriptorMatcher_create("BruteForce-Hamming")
-            raw_matches = matcher.match(last_features, next_features)
-            matches = []
-            for m in raw_matches:
-                matches.append((m.trainIdx, m.queryIdx))
-        # matches = None
-        # if self.is_gpu_available is False:        # CPU Mode
-        #     # 建立暴力匹配器
-        #     if self.feature_method == "surf" or self.feature_method == "sift":
-        #         matcher = cv2.DescriptorMatcher_create("BruteForce")
-        #         # 使用KNN检测来自A、B图的SIFT特征匹配对，K=2，返回一个列表
-        #         raw_matches = matcher.knnMatch(last_features, next_features, 2)
-        #         matches = []
-        #         for m in raw_matches:
-        #             # 当最近距离跟次近距离的比值小于ratio值时，保留此匹配对
-        #             if len(m) == 2 and m[0].distance < m[1].distance * self.search_ratio:
-        #                 # 存储两个点在featuresA, featuresB中的索引值
-        #                 matches.append((m[0].trainIdx, m[0].queryIdx))
-        #     elif self.feature_method == "orb":
-        #         matcher = cv2.DescriptorMatcher_create("BruteForce-Hamming")
-        #         raw_matches = matcher.match(last_features, next_features)
-        #         matches = []
-        #         for m in raw_matches:
-        #             matches.append((m.trainIdx, m.queryIdx))
-        # else:                                   # GPU Mode
-        #     if self.feature_method == "surf":
-        #         matches = self.np_to_list_for_matches(myGpuFeatures.matchDescriptors(np.array(last_features),
-        #                                                                              np.array(next_features),
-        #                                                                              2, self.search_ratio))
-        #     elif self.feature_method == "orb":
-        #         matches = self.np_to_list_for_matches(myGpuFeatures.matchDescriptors(np.array(last_features),
-        #                                                                              np.array(next_features),
-        #                                                                              3, self.orb_max_distance))
-        return matches
+if __name__=="__main__":
+    video_stitcher = VideoStitch()
+    # output_dir = ".\\datasets\\"
+    # file_name = "patch_1_1"
+    # offset_list = [[-1, 20], [9, 10], [13, 10]]
+    # available_list = [True, False, True]
+    # time = 30.56
+    # video_stitcher. record_video_stitch_parameters(output_dir, file_name, available_list, offset_list, time)
+    # offset_list = [[-1, 11], [9, 198], [13, 245], [257, 66]]
+    # available_list = [True, False, True, False]
+    # time = 30.87
+    # video_stitcher. record_video_stitch_parameters(output_dir, file_name, available_list, offset_list, time)
+    # offset_list = [[-1, -100], [0, 0], [13, 10]]
+    # available_list = [True, False, True, True]
+    # time = 30.15
+    # video_stitcher. record_video_stitch_parameters(output_dir, file_name, available_list, offset_list, time)
+    available_list, offset_list, register_time_list = video_stitcher.read_video_stitch_parameters(".\\datasets\\video_stitch_record.txt")
+    print(available_list)
+    print(offset_list)
+    print(register_time_list)
