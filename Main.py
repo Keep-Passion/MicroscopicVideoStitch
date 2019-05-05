@@ -5,7 +5,7 @@ from images_stitcher import ImagesStitch
 import os
 import time
 import numpy as np
-
+from utility import Method
 
 def register_multi_focus_images():
     """
@@ -13,7 +13,7 @@ def register_multi_focus_images():
     """
     image_stitcher = ImagesStitch()
     image_stitcher.feature_method = "surf"     # "sift","surf" or "orb"
-    image_stitcher.is_gpu_available = True     # use or not use gpu
+    image_stitcher.is_gpu_available = False     # use or not use gpu
     image_stitcher.search_ratio = 0.75          # 0.75 is common value for matches
     image_stitcher.offset_calculate = "mode"   # "mode" or "ransac"
     image_stitcher.offset_evaluate = 10          # 3 menas nums of matches for mode, 3.0 menas  of matches for ransac
@@ -33,7 +33,7 @@ def register_multi_focus_images():
 
 def stitch_images():
     """
-    Stitching all the patches in ".\datasets\patch\"
+    Stitching all the patches in "./datasets/patch/"
     """
     image_stitcher = ImagesStitch()
     image_stitcher.feature_method = "surf"     # "sift","surf" or "orb"
@@ -49,7 +49,7 @@ def stitch_images():
     patch_address = os.path.join(os.path.join(project_address, "datasets"), "patch")
     result_address = os.path.join(os.path.join(os.path.join(project_address, "datasets"),
                                                "result"), "origin_images_stitch_result")
-    sub_folders = os.listdir(patch_address)
+    sub_folders = sorted(os.listdir(patch_address))
     time_arrays = np.zeros((15, 1))
     count_index = 0
     # Searching all sub-folders in patch_address and stitch images in each sub-folder
@@ -78,9 +78,9 @@ def stitch_images():
         print("The mean duration for image stitching in {}th material is {:.2f}'s".format(index + 1, time_mean[index]))
 
 
-def stitch_videos(fuse_method="trigonometric", use_pre_calculate=True):
+def stitch_videos(fuse_method="trigonometric", description="", use_pre_calculate=True):
     """
-    Stitching all the videos in ".\datasets\video\"
+    Stitching all the videos in "./datasets/video/"
     """
     video_stitcher = VideoStitch()
     video_stitcher.feature_method = "surf"      # "sift","surf" or "orb"
@@ -90,7 +90,7 @@ def stitch_videos(fuse_method="trigonometric", use_pre_calculate=True):
     video_stitcher.offset_evaluate = 10        # 3 menas nums of matches for mode
     video_stitcher.roi_ratio = 0.2              # roi length for stitching in first direction
     # "not_fuse", "average", "maximum", "minimum", "fade_in_fade_out",
-    # "trigonometric", "multi_band_blending", "spatial_frequency"
+    # "trigonometric", "multi_band_blending", "spatial_frequency" ,"deep_fuse", "", "DSIFT"
     video_stitcher.fuse_method = fuse_method
     pre_available = None
     pre_offsets = None
@@ -103,6 +103,13 @@ def stitch_videos(fuse_method="trigonometric", use_pre_calculate=True):
 
     video_folder = os.path.join(os.path.join(project_address, "datasets"), "video")
     temp_address = sorted(os.listdir(video_folder))
+    # 过滤操作
+    if '.ipynb_checkpoints' in temp_address:
+        temp_address.remove('.ipynb_checkpoints')
+    for item in temp_address:
+        if "temp" in item:
+            temp_address.remove(item)
+            video_stitcher.delete_folder(os.path.join(video_folder, item))
     videos_address = [os.path.join(video_folder, item) for item in temp_address]
     result_address = os.path.join(os.path.join(os.path.join(project_address, "datasets"), "result"),
                                   "origin_videos_stitch_result")
@@ -148,16 +155,18 @@ def stitch_videos(fuse_method="trigonometric", use_pre_calculate=True):
                                                           time_arrays[count_index, 0])
         count_index = count_index + 1
         output_address = os.path.join(result_address,
-                                      "origin_videos_stitch_result" + str(video_name[5:]) + ".tif")
+                                      "origin_videos_stitch_result" + str(video_name[5:]) + ".png")
         print(output_address)
         cv2.imwrite(output_address, stitch_image)
         # only use for comparison in the paper
-        print("D:\\VideoStitch\\different_method\\" + video_stitcher.fuse_method +
-                    "\\" + os.path.basename(output_address))
-        cv2.imwrite("D:\\VideoStitch\\different_method\\" + video_stitcher.fuse_method +
-                    "\\" + os.path.basename(output_address), stitch_image)
+        out_dir = os.path.join(os.path.join(project_address, "back_up_different_methods"), video_stitcher.fuse_method + description)
+        method = Method()
+        method.make_out_dir(out_dir)
+        print(out_dir + os.path.basename(output_address))
+        cv2.imwrite(out_dir + os.path.basename(output_address), stitch_image)
         del stitch_image
     print("Conclusion:")
+    print("Duration:{}".format(time_arrays.T.tolist()))
     time_arrays = time_arrays.reshape((3, 5))
     time_mean = np.average(time_arrays, axis=1)
     for index in range(0, time_mean.shape[0]):
@@ -229,19 +238,21 @@ def register_results_and_compare(description, use_pre_calculate=True):
                                                           image_index,
                                                           record_offset_list)
     if len(total_mse) > 0:
+        print("The mse is: {}".format(total_mse))
         print("The average mse is {:.4f}".format(np.average(total_mse)))
+        print("The psnr is: {}".format(total_psnr))
         print("The average psnr is {:.4f}".format(np.average(total_psnr)))
+        print("The ssim is: {}".format(total_ssim))
         print("The average ssim is {:.4f}".format(np.average(total_ssim)))
-        output_dir = os.path.join(os.path.join(project_address, "datasets"), "result")
+        output_dir = os.path.join(os.path.join(os.path.join(project_address, "datasets"), "result"), "record")
         image_stitcher.record_evalution(output_dir, description, total_mse, total_psnr, total_ssim)
 
-
 if __name__ == "__main__":
-    register_multi_focus_images()
-    stitch_images()
+    # register_multi_focus_images()
+    # stitch_images()
     # "not_fuse", "average", "maximum", "minimum", "fade_in_fade_out",
     # "trigonometric", "multi_band_blending", "spatial_frequency"
     fuse_method = "trigonometric"
-    stitch_videos(fuse_method, use_pre_calculate=False)
-    description = fuse_method
-    register_results_and_compare(description, use_pre_calculate=False)
+    description = ""
+    stitch_videos(fuse_method, description, use_pre_calculate=True)
+    register_results_and_compare(fuse_method + description, use_pre_calculate=True)

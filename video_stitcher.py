@@ -18,6 +18,7 @@ class VideoStitch(Method):
 
     # 关于融合方法的设置
     fuse_method = "not_fuse"
+    sample_rate = 1
 
     def start_stitching(self, video_address, sample_rate=1, use_pre_calculate=False,
                         pre_calculate_available = None, pre_calculate_offset=None, pre_register_time=None):
@@ -48,6 +49,7 @@ class VideoStitch(Method):
         self.make_out_dir(sample_dir)
 
         # 解压文件时有可能会得到无法解压的错误，需要在工程中注意
+        self.sample_rate = sample_rate
         cap = cv2.VideoCapture(video_address)
         frame_num = 0
         save_num = 0
@@ -315,8 +317,7 @@ class VideoStitch(Method):
             fuse_region = image_fusion.fuse_by_multi_band_blending([last_rfr, next_rfr])
         return fuse_region
 
-    @staticmethod
-    def record_video_stitch_parameters(output_dir, video_name, available_list, offset_list, register_time):
+    def record_video_stitch_parameters(self, output_dir, video_name, available_list, offset_list, register_time):
         '''
         Write parameters in video stitch
         :param output_dir: the address of record file
@@ -326,7 +327,7 @@ class VideoStitch(Method):
         :param register_time: float, time of finding feature and matching
         :return:
         '''
-        file_address = os.path.join(output_dir, "video_stitch_record.txt")
+        file_address = os.path.join(output_dir, "video_stitch_sample_" + str(self.sample_rate) + "_record.txt")
         f = open(file_address, "a")
         f.write("###-" + video_name)
         f.write("\n")

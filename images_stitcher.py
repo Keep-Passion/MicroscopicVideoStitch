@@ -439,7 +439,7 @@ class ImagesStitch(Method):
         :param total_ssim: list
         :return:
         '''
-        file_address = os.path.join(output_dir, description + "_evaluation_record.txt")
+        file_address = os.path.join(output_dir, description + "_evaluation.txt")
         f = open(file_address, "w")
         f.write("###-mse\n")
         temp = ""
