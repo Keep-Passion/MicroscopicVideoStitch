@@ -83,12 +83,12 @@ def stitch_videos(fuse_method="trigonometric", description="", use_pre_calculate
     Stitching all the videos in "./datasets/video/"
     """
     video_stitcher = VideoStitch()
-    video_stitcher.feature_method = "surf"      # "sift","surf" or "orb"
-    video_stitcher.is_gpu_available = False     # use or not use gpu
-    video_stitcher.search_ratio = 0.75          # 0.75 is common value for matches
-    video_stitcher.offset_calculate = "mode"    # "mode" or "ransac"
-    video_stitcher.offset_evaluate = 10        # 3 menas nums of matches for mode
-    video_stitcher.roi_ratio = 0.2              # roi length for stitching in first direction
+    video_stitcher.feature_method = "surf"       # "sift","surf" or "orb"
+    video_stitcher.is_gpu_available = False      # use or not use gpu
+    video_stitcher.search_ratio = 0.75            # 0.75 is common value for matches
+    video_stitcher.offset_calculate = "mode"     # "mode" or "ransac"
+    video_stitcher.offset_evaluate = 10           # 3 menas nums of matches for mode
+    video_stitcher.roi_ratio = 0.2                # roi length for stitching in first direction
     # "not_fuse", "average", "maximum", "minimum", "fade_in_fade_out",
     # "trigonometric", "multi_band_blending", "spatial_frequency" ,"deep_fuse", "", "DSIFT"
     video_stitcher.fuse_method = fuse_method
@@ -162,8 +162,8 @@ def stitch_videos(fuse_method="trigonometric", description="", use_pre_calculate
         out_dir = os.path.join(os.path.join(project_address, "back_up_different_methods"), video_stitcher.fuse_method + description)
         method = Method()
         method.make_out_dir(out_dir)
-        print(out_dir + os.path.basename(output_address))
-        cv2.imwrite(out_dir + os.path.basename(output_address), stitch_image)
+        print(os.path.join(out_dir,os.path.basename(output_address)))
+        cv2.imwrite(os.path.join(out_dir,os.path.basename(output_address)), stitch_image)
         del stitch_image
     print("Conclusion:")
     print("Duration:{}".format(time_arrays.T.tolist()))
@@ -254,5 +254,5 @@ if __name__ == "__main__":
     # "trigonometric", "multi_band_blending", "spatial_frequency"
     fuse_method = "trigonometric"
     description = ""
-    # stitch_videos(fuse_method, description, use_pre_calculate=True)
+    stitch_videos(fuse_method, description, use_pre_calculate=True)
     register_results_and_compare(fuse_method + description, use_pre_calculate=True)
