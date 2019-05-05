@@ -68,7 +68,7 @@ def stitch_images():
         count_index = count_index + 1
         if status:
             output_address = os.path.join(result_address,
-                                          "origin_images_stitch_result" + sub_folder[5:] + ".tif")
+                                          "origin_images_stitch_result" + sub_folder[5:] + ".png")
             cv2.imwrite(output_address, stitch_image)
 
     print("Conclusion:")
@@ -249,10 +249,10 @@ def register_results_and_compare(description, use_pre_calculate=True):
 
 if __name__ == "__main__":
     # register_multi_focus_images()
-    # stitch_images()
+    stitch_images()
     # "not_fuse", "average", "maximum", "minimum", "fade_in_fade_out",
     # "trigonometric", "multi_band_blending", "spatial_frequency"
     fuse_method = "trigonometric"
     description = ""
-    stitch_videos(fuse_method, description, use_pre_calculate=True)
+    # stitch_videos(fuse_method, description, use_pre_calculate=True)
     register_results_and_compare(fuse_method + description, use_pre_calculate=True)
