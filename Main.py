@@ -191,6 +191,8 @@ def register_results_and_compare(description, use_pre_calculate=True):
     videos_stitch_folder = os.path.join(os.path.join(os.path.join(project_address, "datasets"),
                                                      "result"), "origin_videos_stitch_result")
     images_address = sorted(os.listdir(images_stitch_folder))
+    if '.ipynb_checkpoints' in images_address:
+        images_address.remove('.ipynb_checkpoints')
     total_mse = []
     total_psnr = []
     total_ssim = []
