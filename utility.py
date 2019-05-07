@@ -7,7 +7,7 @@ from myGpuFeatures import myGpuFeatures
 
 class Method:
     # 关于 GPU 加速的设置
-    is_gpu_available = True
+    is_gpu_available = False
 
     # 关于打印信息的设置
     input_dir = ""

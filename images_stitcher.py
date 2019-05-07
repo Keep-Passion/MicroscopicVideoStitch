@@ -366,17 +366,18 @@ class ImagesStitch(Method):
             if status is False:
                 self.print_and_log("   {} can't be justified because have less common features".format(image_name))
                 continue
-            register_image = np.zeros(target_image.shape)
-            h, w = target_image.shape
-            dx, dy = offset[0], offset[1]
-            if dx >= 0 and dy >= 0:
-                register_image[dx: h, dy: w] = target_image[0: h - dx, 0: w - dy]
-            elif dx < 0 and dy >= 0:
-                register_image[0: h + dx, dy: w] = target_image[-dx: h, 0: w - dy]
-            elif dx >= 0 and dy < 0:
-                register_image[dx: h, 0: w + dy] = target_image[0: h - dx, -dy: w]
-            elif dx < 0 and dy < 0:
-                register_image[0: h + dx, 0: w + dy] = target_image[-dx: h, -dy: w]
+            register_image = self.register_image_by_offset(target_image, offset)
+            # register_image = np.zeros(target_image.shape)
+            # h, w = target_image.shape
+            # dx, dy = offset[0], offset[1]
+            # if dx >= 0 and dy >= 0:
+            #     register_image[dx: h, dy: w] = target_image[0: h - dx, 0: w - dy]
+            # elif dx < 0 and dy >= 0:
+            #     register_image[0: h + dx, dy: w] = target_image[-dx: h, 0: w - dy]
+            # elif dx >= 0 and dy < 0:
+            #     register_image[dx: h, 0: w + dy] = target_image[0: h - dx, -dy: w]
+            # elif dx < 0 and dy < 0:
+            #     register_image[0: h + dx, 0: w + dy] = target_image[-dx: h, -dy: w]
             register_images.append(register_image)
             images_name.append(image_name)
             self.print_and_log("Analyzing done")
@@ -385,6 +386,21 @@ class ImagesStitch(Method):
             temp_image = register_images[index][20:-20, 20:-20]
             # print(os.path.join(output_address, images_name[index]))
             cv2.imwrite(os.path.join(output_address, images_name[index]), temp_image)
+
+    @staticmethod
+    def register_image_by_offset(target_image, offset):
+        register_image = np.zeros(target_image.shape, dtype=target_image.dtype)
+        h, w = target_image.shape
+        dx, dy = offset[0], offset[1]
+        if dx >= 0 and dy >= 0:
+            register_image[dx: h, dy: w] = target_image[0: h - dx, 0: w - dy]
+        elif dx < 0 and dy >= 0:
+            register_image[0: h + dx, dy: w] = target_image[-dx: h, 0: w - dy]
+        elif dx >= 0 and dy < 0:
+            register_image[dx: h, 0: w + dy] = target_image[0: h - dx, -dy: w]
+        elif dx < 0 and dy < 0:
+            register_image[0: h + dx, 0: w + dy] = target_image[-dx: h, -dy: w]
+        return register_image
 
     @staticmethod
     def record_register_parameters(output_dir, video_name, offset_list):

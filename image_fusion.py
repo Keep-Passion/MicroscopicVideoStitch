@@ -2,8 +2,10 @@ import numpy as np
 import cv2
 import math
 from utility import Method
-import scipy.signal as signal
-
+# import torch
+# import torch.nn as nn
+# import PIL.Image
+# import torchvision.transforms as transforms
 
 class ImageFusion(Method):
 
@@ -178,7 +180,7 @@ class ImageFusion(Method):
             last_weight_mat = 1 - next_weight_mat
         return last_weight_mat, next_weight_mat
 
-    def fuse_by_fade_in_and_fade_out(self, images, dx, dy):
+    def fuse_by_fade_in_and_fade_out(self, images, offset):
         """
         渐入渐出融合
         :param images:输入两个相同区域的图像
@@ -187,6 +189,7 @@ class ImageFusion(Method):
         :return:融合后的图像
         """
         (last_image, next_image) = images
+        (dx, dy) = offset
         row, col = last_image.shape[:2]
         last_weight_mat = np.ones(last_image.shape, dtype=np.float32)
         next_weight_mat = np.ones(next_image.shape, dtype=np.float32)
@@ -226,7 +229,7 @@ class ImageFusion(Method):
         fuse_region = np.uint8(result)
         return fuse_region
 
-    def fuse_by_trigonometric(self, images, dx, dy):
+    def fuse_by_trigonometric(self, images, offset):
         """
         三角函数融合
         引用自《一种三角函数权重的图像拼接算法》知网
@@ -236,6 +239,7 @@ class ImageFusion(Method):
         :return:融合后的图像
         """
         (last_image, next_image) = images
+        (dx, dy) = offset
         row, col = last_image.shape[:2]
         last_weight_mat = np.ones(last_image.shape, dtype=np.float64)
         next_weight_mat = np.ones(next_image.shape, dtype=np.float64)
@@ -307,7 +311,7 @@ class ImageFusion(Method):
         fuse_region = np.uint8(self.reconstruct(fuse_lp))
         return fuse_region
 
-    block_size = 4
+    block_size = 5
 
     def fuse_by_spatial_frequency(self, images):
         """
@@ -331,88 +335,72 @@ class ImageFusion(Method):
         (last_image, next_image) = images
         row, col = last_image.shape[0:2]
         weight_matrix = np.ones(last_image.shape)
-        temp = False
-        if temp:   # gpu模式
-            pass
-        else:   # cpu模式
-            # choice_full_zeros = np.array([(0, 0, 0),
-            #                               (0, 1, 0),
-            #                               (0, 0, 0)])
-            # choice_full_ones = np.array([(1, 1, 1),
-            #                              (1, 0, 1),
-            #                              (1, 1, 1)])
-            # row_num = row // self.block_size
-            # col_num = col // self.block_size
-            # fusion_choice = np.ones((row_num + 1, col_num + 1), dtype=np.int)
-            # # print("图像共分为 " + str(row_num + 1) + " 行 " + str(col_num + 1) + " 列")
-            # for i in range(row_num + 1):
-            #     for j in range(col_num + 1):   # 图像切片比较
-            #         if i < row_num and j < col_num:
-            #             row_end_position = (i + 1) * self.block_size
-            #             col_end_position = (j + 1) * self.block_size
-            #         elif i < row_num and j == col_num:
-            #             row_end_position = (i + 1) * self.block_size
-            #             col_end_position = col
-            #         elif i == row_num and j < col_num:
-            #             row_end_position = row
-            #             col_end_position = (j + 1) * self.block_size
-            #         else:
-            #             row_end_position = row
-            #             col_end_position = col
-            #         last_image_block = last_image[(i * self.block_size):row_end_position, (j * self.block_size):col_end_position]
-            #         next_image_block = next_image[(i * self.block_size):row_end_position, (j * self.block_size):col_end_position]
-            #         last_image_block_sf = self.calculate_spatial_frequency(last_image_block)
-            #         next_image_block_sf = self.calculate_spatial_frequency(next_image_block)
-            #         # print("imageA的第 " + str(i + 1) + " 行 " + str(j + 1) + " 列的图像块的SF值为： ", last_image_block_sf)
-            #         # print("imageB的第 " + str(i + 1) + " 行 " + str(j + 1) + " 列的图像块的SF值为： ", next_image_block_sf)
-            #         if last_image_block_sf >= next_image_block_sf:  # 该区域第一张图像较清楚 权值矩阵赋值为1
-            #             # print("choose 1")
-            #             weight_matrix[(i * self.block_size):row_end_position, (j * self.block_size):col_end_position] = \
-            #                 np.ones((row_end_position - (i * self.block_size), col_end_position - (j * self.block_size)))
-            #         else:  # 该区域第二张图像较清楚 赋值为0
-            #             # print("choose 0")
-            #             fusion_choice[i, j] = 0
-            #             weight_matrix[(i * self.block_size):row_end_position, (j * self.block_size):col_end_position] = \
-            #                 np.zeros((row_end_position - (i * self.block_size), col_end_position - (j * self.block_size)))
-            #
-            #         # # 用 3 * 3 的 majority filter 过滤一遍
-            #         # if i > 1 and j > 1:
-            #         #     if np.all(fusion_choice[(i - 2):(i + 1), (j - 2):(j + 1)] == choice_full_zeros):   # 取全0
-            #         #     # print("满足010")
-            #         #         fusion_choice[i - 1, j - 1] = 0
-            #         #         weight_matrix[(i - 1) * self.block_size:i * self.block_size, (j - 1) * self.block_size:j * self.block_size] = \
-            #         #                 np.zeros((self.block_size, self.block_size))
-            #         #     elif np.all(fusion_choice[(i - 2):(i + 1), (j - 2):(j + 1)] == choice_full_ones):  # 取全1
-            #         #     # print("满足101")
-            #         #         fusion_choice[i - 1, j - 1] = 1
-            #         #         weight_matrix[(i - 1) * self.block_size:i * self.block_size, (j - 1) * self.block_size:j * self.block_size] = \
-            #         #             np.ones((self.block_size, self.block_size))
-            (last_image, next_image) = images
-            weight_matrix = np.ones(last_image.shape)
 
-            right_shift_kernel = np.array([[0, 0, 0], [1, 0, 0], [0, 0, 0]])
-            bottom_shift_kernel = np.array([[0, 1, 0], [0, 0, 0], [0, 0, 0]])
+        choice_full_zeros = np.array([(0, 0, 0),
+                                      (0, 1, 0),
+                                      (0, 0, 0)])
+        choice_full_ones = np.array([(1, 1, 1),
+                                     (1, 0, 1),
+                                     (1, 1, 1)])
+        # 矩阵并行处理
+        rf_last_total_pow = (last_image[1:row, 1:col].__sub__(last_image[1:row, 0:col - 1])).__pow__(2)  # 向左减并平方
+        cf_last_total_pow = (last_image[1:row, 1:col].__sub__(last_image[0:row - 1, 1:col])).__pow__(2)  # 向上减并平方
+        rf_next_total_pow = (next_image[1:row, 1:col].__sub__(next_image[1:row, 0:col - 1])).__pow__(2)
+        cf_next_total_pow = (next_image[1:row, 1:col].__sub__(next_image[0:row - 1, 1:col])).__pow__(2)
+        #         print(rf_last_total_pow.shape)
 
-            last_right_shift = signal.correlate2d(last_image, right_shift_kernel, boundary='symm', mode='same')
-            last_bottom_shift = signal.correlate2d(last_image, bottom_shift_kernel, boundary='symm', mode='same')
-            next_right_shift = signal.correlate2d(next_image, right_shift_kernel, boundary='symm', mode='same')
-            next_bottom_shift = signal.correlate2d(next_image, bottom_shift_kernel, boundary='symm', mode='same')
+        if row % self.block_size == 0:
+            row_num = row // self.block_size - 1
+        else:
+            row_num = row // self.block_size
+        if col % self.block_size == 0:
+            col_num = col // self.block_size - 1
+        else:
+            col_num = col // self.block_size
 
-            last_sf = np.power(last_right_shift - last_image, 2) + np.power(last_bottom_shift - last_image, 2)
-            next_sf = np.power(next_right_shift - next_image, 2) + np.power(next_bottom_shift - next_image, 2)
+        fusion_choice = np.ones((row_num + 1, col_num + 1))
 
-            add_kernel = np.ones((self.block_size, self.block_size))
+        # 下一步需要并行化的部分：
+        for i in range(row_num + 1):
+            for j in range(col_num + 1):
+                if i < row_num and j < col_num:
+                    row_end_position = (i + 1) * self.block_size
+                    col_end_position = (j + 1) * self.block_size
+                elif i < row_num and j == col_num:
+                    row_end_position = (i + 1) * self.block_size
+                    col_end_position = col
+                elif i == row_num and j < col_num:
+                    row_end_position = row
+                    col_end_position = (j + 1) * self.block_size
+                else:
+                    row_end_position = row
+                    col_end_position = col
 
-            last_sf_convolve = signal.correlate2d(last_sf, add_kernel, boundary='symm', mode='same')
-            next_sf_convolve = signal.correlate2d(next_sf, add_kernel, boundary='symm', mode='same')
+                sf_last = np.sum(
+                    rf_last_total_pow[(i * self.block_size):row_end_position, (j * self.block_size):col_end_position]) + np.sum(
+                    cf_last_total_pow[(i * self.block_size):row_end_position, (j * self.block_size):col_end_position])
+                sf_next = np.sum(
+                    rf_next_total_pow[(i * self.block_size):row_end_position, (j * self.block_size):col_end_position]) + np.sum(
+                    cf_next_total_pow[(i * self.block_size):row_end_position, (j * self.block_size):col_end_position])
 
-            # last_sf_mean = np.mean(last_sf_convolve)
-            # next_sf_mean = np.mean(next_sf_convolve)
-            # print('lastSF_mean', last_sf_mean)
-            # print('nextSF_mean', next_sf_mean)
+                if sf_last < sf_next:  # 该区域第二张图像较清楚 赋值为0
+                    fusion_choice[i, j] = 0
+                    weight_matrix[(i * self.block_size) + 1:row_end_position + 1,
+                    (j * self.block_size) + 1:col_end_position + 1] -= 1
 
-            sf_compare = np.where(last_sf_convolve > next_sf_convolve, 1, 0)
-
+                # 用 3 * 3 的 majority filter 过滤一遍
+                if i > 1 and j > 1:
+                    if np.all(fusion_choice[(i - 2):(i + 1), (j - 2):(j + 1)] == choice_full_zeros):  # 取全0
+                        # print("满足010")
+                        fusion_choice[i - 1, j - 1] = 0
+                        weight_matrix[(i - 1) * self.block_size + 1:i * self.block_size + 1,
+                        (j - 1) * self.block_size + 1:j * self.block_size + 1] -= 1
+                    elif np.all(fusion_choice[(i - 2):(i + 1), (j - 2):(j + 1)] == choice_full_ones):  # 取全1
+                        # print("满足101")
+                        fusion_choice[i - 1, j - 1] = 1
+                        weight_matrix[(i - 1) * self.block_size + 1:i * self.block_size + 1,
+                        (j - 1) * self.block_size + 1:j * self.block_size + 1] += 1
+        weight_matrix = weight_matrix.astype(np.float32)
         return weight_matrix
 
     @staticmethod
@@ -469,6 +457,12 @@ class ImageFusion(Method):
         fuse_region = 0
         return fuse_region
 
+    input_size_cnn = 256
+    center_size = 200
+    # original_transform = transforms.Compose([
+    #     transforms.ToTensor(),
+    # ])
+    max_input_num = 20
     def fuse_by_our_framework(self, images):
         """
         本文算法融合，引用自：
@@ -477,8 +471,118 @@ class ImageFusion(Method):
         """
         # 在这里提供接口，包括模型参数引用地址、模型，具体用什么模型在其他py文件封装
         (last_image, next_image) = images
-        fuse_region = 0
+        fuse_region = np.zeros(last_image.shape)
+
+        # 使用overlap-tile策略裁切
+        last_input_list = []
+        next_input_list = []
+        padding_num = int((self.input_size_cnn - self.center_size) // 2)
+        last_expand = cv2.copyMakeBorder(last_image, padding_num, padding_num, padding_num, padding_num,
+                                         cv2.BORDER_REFLECT)
+        next_expand = cv2.copyMakeBorder(next_image, padding_num, padding_num, padding_num, padding_num,
+                                         cv2.BORDER_REFLECT)
+        row_expand, col_expand = last_expand.shape[0:2]
+        row_have_remain = False
+        col_have_remain = False
+        if row_expand % self.input_size_cnn == 0:
+            row_have_remain = True
+        if col_expand % self.input_size_cnn == 0:
+            col_have_remain = True
+        row_num = row_expand // self.input_size_cnn
+        col_num = col_expand // self.input_size_cnn
+        for i in range(row_num + 1):
+            for j in range(col_num + 1):
+                row_start = i * self.input_size_cnn
+                row_end = (i + 1) * self.input_size_cnn
+                col_start = j * self.input_size_cnn
+                col_end = (j + 1) * self.input_size_cnn
+                if i == row_num:
+                    if row_have_remain:
+                        row_start = row_expand - self.input_size_cnn
+                        row_end = row_expand
+                    else:
+                        break
+                if j == col_num:
+                    if col_have_remain:
+                        col_start = col_expand - self.input_size_cnn
+                        col_end = col_expand
+                    else:
+                        continue
+                last_input_list.append(last_expand[row_start: row_end, col_start:col_end])
+                next_input_list.append(next_expand[row_start: row_end, col_start:col_end])
+        input_num = len(last_input_list)
+        # 将list转化为Tensor
+        last_input_tensors = self.trans_list_to_Tensor(last_input_list, input_num)
+        next_input_tensors = self.trans_list_to_Tensor(next_input_list, input_num)
+
+        # 分步送入网络
+        output_tensors = None
+        if input_num < self.max_input_num:
+            output_tensors = self.run_network(last_input_tensors, next_input_tensors).data
+        else:
+            output_tensors = torch.zeros([input_num, 1, self.input_size_cnn, self.input_size_cnn])
+            implement_num = 0
+            while implement_num < input_num:
+                remain_num = input_num - implement_num
+                if remain_num > self.max_input_num:
+                    output_tensors[implement_num:implement_num + self.max_input_num, :] = \
+                        self.run_network(
+                            last_input_tensors[implement_num:implement_num + self.max_input_num, :, :, :],
+                            next_input_tensors[implement_num:implement_num + self.max_input_num, :, :, :],
+                        ).data
+                else:
+                    output_tensors[implement_num:input_num, :] = \
+                        self.run_network(
+                            last_input_tensors[implement_num: input_num, :, :, :],
+                            next_input_tensors[implement_num: input_num, :, :, :],
+                        ).data
+                implement_num += self.max_input_num
+
+        # 将Tensor转化为list
+        output_list = self.trans_Tensor_to_list(output_tensors, input_num)
+
+        # 放置于图像中各个位置
+        row, col = last_image.shape[0:2]
+        row_num = row // self.input_size_cnn
+        col_num = col // self.input_size_cnn
+        for index, item in enumerate(output_list):
+            if row_have_remain:
+                row_start = index // (col + 1) * self.center_size
+                row_end = ((index // (col + 1)) + 1) * self.center_size
+                if row_start == row_num - 1:
+                    row_start = col - self.center_size
+                    row_end = col
+            else:
+                row_start = row - self.center_size
+                row_end = row
+            if col_have_remain:
+                col_start = index % (col + 1) * self.center_size
+                col_end = ((index % (col + 1)) + 1) * self.center_size
+                if col_start == col_num - 1:
+                    col_start = col - self.center_size
+                    col_end = col
+            else:
+                col_start = index % col * self.center_size
+                col_end = ((index % col) + 1) * self.center_size
+            fuse_region[row_start, row_end, col_start, col_end] = \
+                output_list[index][padding_num: padding_num + self.center_size, padding_num: padding_num + self.center_size]
         return fuse_region
+
+    def run_network(self, last_input, next_input):
+        pass
+
+    def trans_list_to_Tensor(self, input_list, input_num):
+        input_tensors = torch.zeros((input_num, 1, self.input_size_cnn, self.input_size_cnn))
+        for index, array in enumerate(input_list):
+            image_pil = PIL.Image.fromarray(array)
+            input_tensors[index, :, :, :] = self.original_transform(image_pil)
+        return input_tensors
+
+    def trans_Tensor_to_list(self, output_tensors, input_num):
+        output_list = []
+        for i in range(input_num):
+            output_list.append(output_tensors[i, :, :, :].clamp(0,255).numpy().transpose((1, 2, 0)))
+        return output_list
 
     # # 权值矩阵归一化
     # def normalize_weight_mat(self, weight_mat):

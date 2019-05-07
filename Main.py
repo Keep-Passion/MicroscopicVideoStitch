@@ -89,6 +89,7 @@ def stitch_videos(fuse_method="trigonometric", description="", use_pre_calculate
     video_stitcher.offset_calculate = "mode"     # "mode" or "ransac"
     video_stitcher.offset_evaluate = 10           # 3 menas nums of matches for mode
     video_stitcher.roi_ratio = 0.2                # roi length for stitching in first direction
+    video_stitcher.need_detailed_register = True  # Whether to use re register/ detailed register
     # "not_fuse", "average", "maximum", "minimum", "fade_in_fade_out",
     # "trigonometric", "multi_band_blending", "spatial_frequency" ,"deep_fuse", "", "DSIFT"
     video_stitcher.fuse_method = fuse_method
@@ -251,10 +252,10 @@ def register_results_and_compare(description, use_pre_calculate=True):
 
 if __name__ == "__main__":
     # register_multi_focus_images()
-    stitch_images()
+    # stitch_images()
     # "not_fuse", "average", "maximum", "minimum", "fade_in_fade_out",
     # "trigonometric", "multi_band_blending", "spatial_frequency"
-    fuse_method = "trigonometric"
+    fuse_method = "not_fuse"
     description = ""
-    stitch_videos(fuse_method, description, use_pre_calculate=True)
-    register_results_and_compare(fuse_method + description, use_pre_calculate=True)
+    stitch_videos(fuse_method, description, use_pre_calculate=False)
+    # register_results_and_compare(fuse_method + description, use_pre_calculate=True)

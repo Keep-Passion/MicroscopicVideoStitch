@@ -5,6 +5,7 @@ from utility import Method
 from image_fusion import ImageFusion
 import time
 import copy
+from images_stitcher import ImagesStitch
 
 class VideoStitch(Method):
     """
@@ -12,13 +13,16 @@ class VideoStitch(Method):
     """
     image_shape = None
     offset_list = []
-    # record_offset_list = []
     is_available_list = []
     images_address_list = None
+
+    need_detailed_register = True
 
     # 关于融合方法的设置
     fuse_method = "not_fuse"
     sample_rate = 1
+    video_name = ""
+    image_stitcher = ImagesStitch()
 
     def start_stitching(self, video_address, sample_rate=1, use_pre_calculate=False,
                         pre_calculate_available = None, pre_calculate_offset=None, pre_register_time=None):
@@ -36,6 +40,7 @@ class VideoStitch(Method):
         # 建立 temp 文件夹
         input_dir = os.path.dirname(video_address)
         video_name = os.path.basename(video_address).split(".")[0]
+        self.video_name = video_name
         sample_dir = os.path.join(input_dir, "temp_" + video_name)
 
         # 将 video 采样到 temp 文件夹
@@ -99,6 +104,17 @@ class VideoStitch(Method):
                                           cv2.IMREAD_GRAYSCALE)
                 self.image_shape = last_image.shape
                 status, offset = self.calculate_offset_by_feature_in_roi([last_image, next_image])
+
+                if status and self.need_detailed_register:
+                    overlap_last_image, overlap_next_image = \
+                        self.get_overlap_regions(last_image, next_image, offset)
+                    # print(overlap_last_image.shape)
+                    # print(overlap_next_image.shape)
+                    detailed_status, detailed_offset = \
+                        self.calculate_offset_by_feature_in_roi([overlap_last_image, overlap_next_image])
+                    if detailed_status:
+                        offset[0] = offset[0] + detailed_offset[0]
+                        offset[1] = offset[1] + detailed_offset[1]
                 if status is False:
                     self.print_and_log("    {}th frame can not be stitched, the reason is {}".format(file_index, offset))
                     self.is_available_list.append(False)
@@ -236,6 +252,7 @@ class VideoStitch(Method):
         self.print_and_log("  The rectified offsetList is " + str(self.offset_list))
         # print(len(self.offset_list))
         # 如上算出各个图像相对于原点偏移量，并最终计算出输出图像大小，并构造矩阵，如下开始赋值
+        count = 0
         for i in range(0, len(self.offset_list)):
             if self.is_available_list[i] is False:
                 continue
@@ -245,38 +262,33 @@ class VideoStitch(Method):
                 stitch_result[self.offset_list[0][0]: self.offset_list[0][0] + image.shape[0],
                               self.offset_list[0][1]: self.offset_list[0][1] + image.shape[1]] = image
             else:
-                if self.fuse_method == "not_fuse":
-                    # 适用于无图像融合，直接覆盖
-                    stitch_result[
-                        self.offset_list[i][0]: self.offset_list[i][0] + image.shape[0],
-                        self.offset_list[i][1]: self.offset_list[i][1] + image.shape[1]] = image
-                else:
-                    # 适用于图像融合算法，切出 roiA 和 roiB 供图像融合
-                    min_occupy_x = range_x[i - 1][0]
-                    max_occupy_x = range_x[i - 1][1]
-                    min_occupy_y = range_y[i - 1][0]
-                    max_occupy_y = range_y[i - 1][1]
-                    # self.printAndWrite("Stitch " + str(i + 1) + "th, the offsetList[i][0] is " + str(
-                    #     offsetList[i][0]) + " and the offsetList[i][1] is " + str(offsetList[i][1]))
-                    # self.printAndWrite("Stitch " + str(i + 1) + "th, the minOccupyX is " + str(
-                    #     minOccupyX) + " and the maxOccupyX is " + str(maxOccupyX) + " and the minOccupyY is " + str(
-                    #     minOccupyY) + " and the maxOccupyY is " + str(maxOccupyY))
-                    roi_ltx = max(self.offset_list[i][0], min_occupy_x)
-                    roi_lty = max(self.offset_list[i][1], min_occupy_y)
-                    roi_rbx = min(self.offset_list[i][0] + image.shape[0], max_occupy_x)
-                    roi_rby = min(self.offset_list[i][1] + image.shape[1], max_occupy_y)
-                    # self.printAndWrite("Stitch " + str(i + 1) + "th, the roi_ltx is " + str(
-                    #     roi_ltx) + " and the roi_lty is " + str(roi_lty) + " and the roi_rbx is " + str(
-                    #     roi_rbx) + " and the roi_rby is " + str(roi_rby))
-                    last_roi_fuse_region = stitch_result[roi_ltx:roi_rbx, roi_lty:roi_rby].copy()
-                    stitch_result[
-                        self.offset_list[i][0]: self.offset_list[i][0] + image.shape[0],
-                        self.offset_list[i][1]: self.offset_list[i][1] + image.shape[1]] = image.copy()
-                    next_roi_fuse_region = stitch_result[roi_ltx:roi_rbx, roi_lty:roi_rby].copy()
-                    stitch_result[roi_ltx:roi_rbx, roi_lty:roi_rby] = self.fuse_image(
-                        [last_roi_fuse_region, next_roi_fuse_region],
-                        [offset_list_origin[i][0], offset_list_origin[i][1]])
-                    del last_roi_fuse_region, next_roi_fuse_region
+                count += 1
+                min_occupy_x = range_x[i - 1][0]
+                max_occupy_x = range_x[i - 1][1]
+                min_occupy_y = range_y[i - 1][0]
+                max_occupy_y = range_y[i - 1][1]
+                # self.printAndWrite("Stitch " + str(i + 1) + "th, the offsetList[i][0] is " + str(
+                #     offsetList[i][0]) + " and the offsetList[i][1] is " + str(offsetList[i][1]))
+                # self.printAndWrite("Stitch " + str(i + 1) + "th, the minOccupyX is " + str(
+                #     minOccupyX) + " and the maxOccupyX is " + str(maxOccupyX) + " and the minOccupyY is " + str(
+                #     minOccupyY) + " and the maxOccupyY is " + str(maxOccupyY))
+                roi_ltx = max(self.offset_list[i][0], min_occupy_x)
+                roi_lty = max(self.offset_list[i][1], min_occupy_y)
+                roi_rbx = min(self.offset_list[i][0] + image.shape[0], max_occupy_x)
+                roi_rby = min(self.offset_list[i][1] + image.shape[1], max_occupy_y)
+                # self.printAndWrite("Stitch " + str(i + 1) + "th, the roi_ltx is " + str(
+                #     roi_ltx) + " and the roi_lty is " + str(roi_lty) + " and the roi_rbx is " + str(
+                #     roi_rbx) + " and the roi_rby is " + str(roi_rby))
+                last_roi_fuse_region = stitch_result[roi_ltx:roi_rbx, roi_lty:roi_rby].copy()
+                stitch_result[
+                    self.offset_list[i][0]: self.offset_list[i][0] + image.shape[0],
+                    self.offset_list[i][1]: self.offset_list[i][1] + image.shape[1]] = image.copy()
+                next_roi_fuse_region = stitch_result[roi_ltx:roi_rbx, roi_lty:roi_rby].copy()
+                stitch_result[roi_ltx:roi_rbx, roi_lty:roi_rby] = self.fuse_image(
+                    [last_roi_fuse_region, next_roi_fuse_region],
+                    [offset_list_origin[i][0], offset_list_origin[i][1]])
+                self.save_roi_images(count, last_roi_fuse_region, next_roi_fuse_region)
+                del last_roi_fuse_region, next_roi_fuse_region
             del image
         stitch_result[stitch_result == -1] = 0
         return stitch_result.astype(np.uint8)
@@ -289,7 +301,6 @@ class VideoStitch(Method):
         :return:返回融合结果
         """
         (last_rfr, next_rfr) = overlap_rfrs
-        (dx, dy) = offset
         if self.fuse_method != "fade_in_fade_out" and self.fuse_method != "trigonometric":
             # 将各自区域中为背景的部分用另一区域填充，目的是消除背景
             # 权值为-1是为了方便渐入检出融合和三角融合计算
@@ -308,14 +319,35 @@ class VideoStitch(Method):
         elif self.fuse_method == "minimum":
             fuse_region = image_fusion.fuse_by_minimum([last_rfr, next_rfr])
         elif self.fuse_method == "fade_in_fade_out":
-            fuse_region = image_fusion.fuse_by_fade_in_and_fade_out(overlap_rfrs, dx, dy)
+            fuse_region = image_fusion.fuse_by_fade_in_and_fade_out(overlap_rfrs, offset)
         elif self.fuse_method == "trigonometric":
-            fuse_region = image_fusion.fuse_by_trigonometric(overlap_rfrs, dx, dy)
+            fuse_region = image_fusion.fuse_by_trigonometric(overlap_rfrs, offset)
         elif self.fuse_method == "spatial_frequency":
             fuse_region = image_fusion.fuse_by_spatial_frequency([last_rfr, next_rfr])
         elif self.fuse_method == "multi_band_blending":
             fuse_region = image_fusion.fuse_by_multi_band_blending([last_rfr, next_rfr])
         return fuse_region
+
+    @staticmethod
+    def get_overlap_regions(last_image, next_image, offset):
+        h, w = last_image.shape
+        overlap_last_image = None
+        overlap_next_image = None
+        dx, dy = offset
+        # print(offset)
+        if dx >= 0 and dy >= 0:
+            overlap_last_image = last_image[dx: h, dy: w]
+            overlap_next_image = next_image[0: h - dx, 0: w - dy]
+        elif dx >= 0 and dy < 0:
+            overlap_last_image = last_image[dx: h, 0: w + dy]
+            overlap_next_image = next_image[0: h - dx, -dy: w]
+        elif dx < 0 and dy >= 0:
+            overlap_last_image = last_image[0: h + dx, dy: w]
+            overlap_next_image = next_image[-dx: h, 0: w - dy]
+        elif dx < 0 and dy < 0:
+            overlap_last_image = last_image[0: h + dx, 0: w + dy]
+            overlap_next_image = next_image[-dx: h, -dy: w]
+        return overlap_last_image, overlap_next_image
 
     def record_video_stitch_parameters(self, output_dir, video_name, available_list, offset_list, register_time):
         '''
@@ -385,23 +417,11 @@ class VideoStitch(Method):
                     register_time_list.append(float(lines))
         return available_list, offset_list, register_time_list
 
-if __name__=="__main__":
-    video_stitcher = VideoStitch()
-    # output_dir = ".\\datasets\\"
-    # file_name = "patch_1_1"
-    # offset_list = [[-1, 20], [9, 10], [13, 10]]
-    # available_list = [True, False, True]
-    # time = 30.56
-    # video_stitcher. record_video_stitch_parameters(output_dir, file_name, available_list, offset_list, time)
-    # offset_list = [[-1, 11], [9, 198], [13, 245], [257, 66]]
-    # available_list = [True, False, True, False]
-    # time = 30.87
-    # video_stitcher. record_video_stitch_parameters(output_dir, file_name, available_list, offset_list, time)
-    # offset_list = [[-1, -100], [0, 0], [13, 10]]
-    # available_list = [True, False, True, True]
-    # time = 30.15
-    # video_stitcher. record_video_stitch_parameters(output_dir, file_name, available_list, offset_list, time)
-    available_list, offset_list, register_time_list = video_stitcher.read_video_stitch_parameters(".\\datasets\\video_stitch_record.txt")
-    print(available_list)
-    print(offset_list)
-    print(register_time_list)
+    def save_roi_images(self, index, last_roi, next_roi):
+        # print(self.video_name[6], self.video_name[8], str(index).zfill(5))
+        folder_address = str(self.video_name[6]) + "_" + \
+                         str(self.video_name[8]) + "_" + \
+                         str(index).zfill(5)
+        self.make_out_dir(".\\datasets\\used_for_nets\\total\\" + folder_address + "\\")
+        cv2.imwrite(".\\datasets\\used_for_nets\\total\\" + folder_address + "\\" + folder_address + "_1.png", last_roi)
+        cv2.imwrite(".\\datasets\\used_for_nets\\total\\" + folder_address + "\\" + folder_address + "_2.png", next_roi)
