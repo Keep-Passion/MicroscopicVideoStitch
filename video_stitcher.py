@@ -326,6 +326,8 @@ class VideoStitch(Method):
             fuse_region = image_fusion.fuse_by_spatial_frequency([last_rfr, next_rfr])
         elif self.fuse_method == "multi_band_blending":
             fuse_region = image_fusion.fuse_by_multi_band_blending([last_rfr, next_rfr])
+        elif self.fuse_method == "our_framework":
+            fuse_region = image_fusion.fuse_by_our_framework([last_rfr, next_rfr])
         return fuse_region
 
     @staticmethod
@@ -418,10 +420,18 @@ class VideoStitch(Method):
         return available_list, offset_list, register_time_list
 
     def save_roi_images(self, index, last_roi, next_roi):
-        # print(self.video_name[6], self.video_name[8], str(index).zfill(5))
-        folder_address = str(self.video_name[6]) + "_" + \
+        folder_name = str(self.video_name[6]) + "_" + \
                          str(self.video_name[8]) + "_" + \
                          str(index).zfill(5)
-        self.make_out_dir(".\\datasets\\used_for_nets\\total\\" + folder_address + "\\")
-        cv2.imwrite(".\\datasets\\used_for_nets\\total\\" + folder_address + "\\" + folder_address + "_1.png", last_roi)
-        cv2.imwrite(".\\datasets\\used_for_nets\\total\\" + folder_address + "\\" + folder_address + "_2.png", next_roi)
+        project_address = os.getcwd()
+        dataset_address = os.path.join(os.path.join(project_address, "datasets"), "used_for_nets")
+        if int(self.video_name[8]) < 4:
+            dataset_address = os.path.join(dataset_address, "train")
+        elif int(self.video_name[8]) < 5:
+            dataset_address = os.path.join(dataset_address, "val")
+        elif int(self.video_name[8]) == 5:
+            dataset_address = os.path.join(dataset_address, "test")
+        folder_address = os.path.join(dataset_address, folder_name)
+        self.make_out_dir(folder_address)
+        cv2.imwrite(os.path.join(folder_address, folder_name + "_1.png", last_roi))
+        cv2.imwrite(os.path.join(folder_address, folder_name + "_2.png", next_roi))

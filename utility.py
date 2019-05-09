@@ -1,7 +1,8 @@
-import cv2
 import os
 import shutil
+import cv2
 import numpy as np
+
 from myGpuFeatures import myGpuFeatures
 
 
@@ -98,7 +99,8 @@ class Method:
         resize_h = int(h * resize_times)
         resize_w = int(w * resize_times)
         # cv2.INTER_AREA是测试后最好的方法
-        resized_image = cv2.resize(origin_image, (resize_w, resize_h), interpolation=inter_method)
+        resized_image = cv2.resize(
+            origin_image, (resize_w, resize_h), interpolation=inter_method)
         return resized_image
 
     def generate_video_from_image(self, source_image, output_dir):
@@ -115,10 +117,14 @@ class Method:
         # video_writer = cv2.VideoWriter(os.path.join(output_dir, "test_video.avi"),
         #                                cv2.VideoWriter_fourcc(*'XVID'), fps, (width, width))
         # video_writer = cv2.VideoWriter(os.path.join(output_dir, "test_video.avi"),
-        #                                cv2.VideoWriter_fourcc('I', '4', '2', '0'), fps, (width, width))
-        video_writer = cv2.VideoWriter(os.path.join(output_dir, "test_video.avi"),
-                                       cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'), fps, (width, width))
-        self.print_and_log("Video setting: fps is {} and the frame size is {}".format(fps, (width, width)))
+        # cv2.VideoWriter_fourcc('I', '4', '2', '0'), fps, (width, width))
+        video_writer = cv2.VideoWriter(
+            os.path.join(
+                output_dir, "test_video.avi"), cv2.VideoWriter_fourcc(
+                'M', 'J', 'P', 'G'), fps, (width, width))
+        self.print_and_log(
+            "Video setting: fps is {} and the frame size is {}".format(
+                fps, (width, width)))
         self.print_and_log("Start converting")
         row_index = 0
         while True:
@@ -126,7 +132,9 @@ class Method:
                 break
             image_temp = source_image[row_index: row_index + width, :, :]
             video_writer.write(image_temp)
-            self.print_and_log("The {}th frame with shape of {}".format(row_index + 1, image_temp.shape))
+            self.print_and_log(
+                "The {}th frame with shape of {}".format(
+                    row_index + 1, image_temp.shape))
             row_index = row_index + 1
         video_writer.release()
         self.print_and_log("Convert end")
@@ -185,9 +193,16 @@ class Method:
             elif self.feature_method == "surf":
                 descriptor = cv2.xfeatures2d.SURF_create()
             elif self.feature_method == "orb":
-                descriptor = cv2.ORB_create(self.orb_n_features, self.orb_scale_factor, self.orb_n_levels,
-                                            self.orb_edge_threshold, self.orb_first_level, self.orb_wta_k, 0,
-                                            self.orb_patch_size, self.orb_fast_threshold)
+                descriptor = cv2.ORB_create(
+                    self.orb_n_features,
+                    self.orb_scale_factor,
+                    self.orb_n_levels,
+                    self.orb_edge_threshold,
+                    self.orb_first_level,
+                    self.orb_wta_k,
+                    0,
+                    self.orb_patch_size,
+                    self.orb_fast_threshold)
             # 检测SIFT特征点，并计算描述子
             kps, features = descriptor.detectAndCompute(image, None)
             # 将结果转换成NumPy数组
@@ -248,7 +263,8 @@ class Method:
                 matches = []
                 for m in raw_matches:
                     # 当最近距离跟次近距离的比值小于ratio值时，保留此匹配对
-                    if len(m) == 2 and m[0].distance < m[1].distance * self.search_ratio:
+                    if len(
+                            m) == 2 and m[0].distance < m[1].distance * self.search_ratio:
                         # 存储两个点在featuresA, featuresB中的索引值
                         matches.append((m[0].trainIdx, m[0].queryIdx))
             elif self.feature_method == "orb":
@@ -259,13 +275,15 @@ class Method:
                     matches.append((m.trainIdx, m.queryIdx))
         else:                                   # GPU Mode
             if self.feature_method == "surf":
-                matches = self.np_to_list_for_matches(myGpuFeatures.matchDescriptors(np.array(last_features),
-                                                                                     np.array(next_features),
-                                                                                     2, self.search_ratio))
+                matches = self.np_to_list_for_matches(myGpuFeatures.matchDescriptors(
+                    np.array(last_features), np.array(next_features), 2, self.search_ratio))
             elif self.feature_method == "orb":
-                matches = self.np_to_list_for_matches(myGpuFeatures.matchDescriptors(np.array(last_features),
-                                                                                     np.array(next_features),
-                                                                                     3, self.orb_max_distance))
+                matches = self.np_to_list_for_matches(
+                    myGpuFeatures.matchDescriptors(
+                        np.array(last_features),
+                        np.array(next_features),
+                        3,
+                        self.orb_max_distance))
         return matches
 
     def calculate_feature(self, input_image):
@@ -277,7 +295,9 @@ class Method:
         # 判断是否有增强
         if self.is_enhance:
             if self.is_clahe:
-                clahe = cv2.createCLAHE(clipLimit=self.clip_limit, tileGridSize=(self.tile_size, self.tile_size))
+                clahe = cv2.createCLAHE(
+                    clipLimit=self.clip_limit, tileGridSize=(
+                        self.tile_size, self.tile_size))
                 input_image = clahe.apply(input_image)
             elif self.is_clahe is False:
                 input_image = cv2.equalizeHist(input_image)
@@ -302,7 +322,11 @@ class Method:
         for trainIdx, queryIdx in matches:
             last_pt = (last_kps[queryIdx][1], last_kps[queryIdx][0])
             next_pt = (next_kps[trainIdx][1], next_kps[trainIdx][0])
-            if int(last_pt[0] - next_pt[0]) == 0 and int(last_pt[1] - next_pt[1]) == 0:
+            if int(
+                    last_pt[0] -
+                    next_pt[0]) == 0 and int(
+                    last_pt[1] -
+                    next_pt[1]) == 0:
                 continue
             if use_round:
                 dx_list.append(int(round(last_pt[0] - next_pt[0])))
@@ -317,7 +341,11 @@ class Method:
         zipped = zip(dx_list, dy_list)
         zip_list = list(zipped)
         zip_dict = dict((a, zip_list.count(a)) for a in zip_list)
-        zip_dict_sorted = dict(sorted(zip_dict.items(), key=lambda x: x[1], reverse=True))
+        zip_dict_sorted = dict(
+            sorted(
+                zip_dict.items(),
+                key=lambda x: x[1],
+                reverse=True))
         dx = list(zip_dict_sorted)[0][0]
         dy = list(zip_dict_sorted)[0][1]
         num = zip_dict_sorted[list(zip_dict_sorted)[0]]
@@ -356,11 +384,3 @@ class Method:
                                   np.round(np.array(H).astype(np.int)[0, 2]) * (-1)], adjust_h
         else:
             return total_status, [0, 0], 0
-# if __name__ == "__main__":
-    # # 根据图像生成视频
-    # image = cv2.imread("stitching_by_human.png")
-    # project_address = os.getcwd()
-    # method = Method()
-    # method.generate_video_from_image(image, os.path.join(project_address, "result"))
-    # # sub_image = method.resize_image(image, 0.5)
-    # # cv2.imwrite("stitching_by_human.png", sub_image)

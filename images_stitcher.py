@@ -211,9 +211,9 @@ class ImagesStitch(Method):
         elif self.fuse_method == "minimum":
             fuse_region = image_fusion.fuse_by_minimum([last_rfr, next_rfr])
         elif self.fuse_method == "fade_in_fade_out":
-            fuse_region = image_fusion.fuse_by_fade_in_and_fade_out(overlap_rfrs, dx, dy)
+            fuse_region = image_fusion.fuse_by_fade_in_and_fade_out(overlap_rfrs, offset)
         elif self.fuse_method == "trigonometric":
-            fuse_region = image_fusion.fuse_by_trigonometric(overlap_rfrs, dx, dy)
+            fuse_region = image_fusion.fuse_by_trigonometric(overlap_rfrs, offset)
         elif self.fuse_method == "multi_band_blending":
             fuse_region = image_fusion.fuse_by_multi_band_blending([last_rfr, next_rfr])
         return fuse_region

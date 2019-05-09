@@ -50,7 +50,7 @@ def stitch_images():
     result_address = os.path.join(os.path.join(os.path.join(project_address, "datasets"),
                                                "result"), "origin_images_stitch_result")
     sub_folders = sorted(os.listdir(patch_address))
-    time_arrays = np.zeros((15, 1))
+    time_arrays = np.zeros((3, 1))
     count_index = 0
     # Searching all sub-folders in patch_address and stitch images in each sub-folder
     for sub_folder in sub_folders:
@@ -72,7 +72,7 @@ def stitch_images():
             cv2.imwrite(output_address, stitch_image)
 
     print("Conclusion:")
-    time_arrays = time_arrays.reshape((3, 5))
+    time_arrays = time_arrays.reshape((3, 1))
     time_mean = np.average(time_arrays, axis=1)
     for index in range(0, time_mean.shape[0]):
         print("The mean duration for image stitching in {}th material is {:.2f}'s".format(index + 1, time_mean[index]))
@@ -99,7 +99,7 @@ def stitch_videos(fuse_method="trigonometric", description="", use_pre_calculate
     project_address = os.getcwd()
     if use_pre_calculate:  # 是否使用预先计算的偏移量，以此来减少配准时间
         record_file_address = os.path.join(os.path.join(os.path.join(project_address, "datasets"),
-                                                        "result"), "video_stitch_record.txt")
+                                                        "result"), "video_stitch_sample_1_record.txt")
         pre_available, pre_offsets, pre_regis_times = video_stitcher.read_video_stitch_parameters(record_file_address)
 
     video_folder = os.path.join(os.path.join(project_address, "datasets"), "video")
@@ -114,7 +114,7 @@ def stitch_videos(fuse_method="trigonometric", description="", use_pre_calculate
     videos_address = [os.path.join(video_folder, item) for item in temp_address]
     result_address = os.path.join(os.path.join(os.path.join(project_address, "datasets"), "result"),
                                   "origin_videos_stitch_result")
-    time_arrays = np.zeros((15, 1))
+    time_arrays = np.zeros((3, 1))
 
     output_dir = os.path.join(os.path.join(project_address, "datasets"), "result")
     if use_pre_calculate is False:
@@ -168,7 +168,7 @@ def stitch_videos(fuse_method="trigonometric", description="", use_pre_calculate
         del stitch_image
     print("Conclusion:")
     print("Duration:{}".format(time_arrays.T.tolist()))
-    time_arrays = time_arrays.reshape((3, 5))
+    time_arrays = time_arrays.reshape((3, 1))
     time_mean = np.average(time_arrays, axis=1)
     for index in range(0, time_mean.shape[0]):
         print("The mean duration for video stitching in {:.2f}th material is {}'s".format(index + 1, time_mean[index]))
@@ -254,8 +254,8 @@ if __name__ == "__main__":
     # register_multi_focus_images()
     # stitch_images()
     # "not_fuse", "average", "maximum", "minimum", "fade_in_fade_out",
-    # "trigonometric", "multi_band_blending", "spatial_frequency"
-    fuse_method = "not_fuse"
-    description = ""
-    stitch_videos(fuse_method, description, use_pre_calculate=False)
-    # register_results_and_compare(fuse_method + description, use_pre_calculate=True)
+    # "trigonometric", "multi_band_blending", "spatial_frequency", "our_framework"
+    fuse_method = "average"
+    description = fuse_method + ""
+    stitch_videos(fuse_method, description, use_pre_calculate=True)
+    register_results_and_compare(description, use_pre_calculate=True)
