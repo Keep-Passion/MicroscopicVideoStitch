@@ -101,4 +101,4 @@ class SSIM_SF_Loss(nn.Module):
         # print('final_score.shape', final_score.shape)
         # print('final_score', final_score)
 
-        return 1 - torch.mean(final_score), y_sf
+        return 1 - torch.mean(final_score)

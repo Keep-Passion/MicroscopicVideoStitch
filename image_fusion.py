@@ -6,12 +6,30 @@ from utility import Method
 import torch
 import torch.nn as nn
 import torch.nn.functional as f
-import PIL.Image
 import torchvision.transforms as transforms
-
 from nets.models.unet_model import UNet
 
 class ImageFusion(Method):
+    block_size = 5
+    pyramid_level = 4
+
+    mean_value = 0.3976813856328417
+    std_value = 0.05057423681125553
+    input_size_cnn = 256
+    center_size = 200
+    max_input_num = 10
+    device = "cuda:0"
+    data_transforms = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize([mean_value], [std_value]),
+    ])
+    model = UNet(n_channels=1, n_classes=1)
+    project_address = os.getcwd()
+    parameter_address = os.path.join(os.path.join(os.path.join(project_address, 'nets'), 'parameters'), '7_new_data_load.pth')
+    state = torch.load(parameter_address)
+    model.load_state_dict(state['model'])
+    model.to(device)
+    model.eval()
 
     @staticmethod
     def fuse_by_average(images):
@@ -46,16 +64,10 @@ class ImageFusion(Method):
 
         (last_image, next_image) = images
         fuse_region = np.minimum(last_image, next_image)
-        # print(np.unique(last_image))
-        # print(np.unique(next_image))
-        # cv2.namedWindow("show", 0)
-        # cv2.imshow("show", np.hstack([last_image, next_image]).astype(np.uint8))
-        # cv2.waitKey(0)
-        # cv2.imwrite("test.tif", np.hstack([last_image, next_image]).astype(np.uint8))
         return fuse_region
 
     @staticmethod
-    def get_weights_matrix(images):
+    def _get_weights_matrix(images):
         """
         获取权值矩阵
         :param images: 带融合两幅图像
@@ -224,7 +236,7 @@ class ImageFusion(Method):
         else:
             # 如果对于imageA中，非0值占比例比较小，则认为是拐角融合
             # self.printAndWrite("拐角融合")
-            last_weight_mat, next_weight_mat = self.get_weights_matrix(images)
+            last_weight_mat, next_weight_mat = self._get_weights_matrix(images)
         last_image[last_image < 0] = next_image[last_image < 0]
         next_image[next_image == -1] = 0
         result = last_weight_mat * last_image.astype(np.int) + next_weight_mat * next_image.astype(np.int)
@@ -272,7 +284,7 @@ class ImageFusion(Method):
         else:
             # 如果对于imageA中，非0值占比例比较小，则认为是拐角融合
             # self.printAndWrite("拐角融合")
-            last_weight_mat, next_weight_mat = self.get_weights_matrix(images)
+            last_weight_mat, next_weight_mat = self._get_weights_matrix(images)
 
         last_weight_mat = np.power(np.sin(last_weight_mat * math.pi / 2), 2)
         next_weight_mat = 1 - last_weight_mat
@@ -297,8 +309,6 @@ class ImageFusion(Method):
         fuse_region = last_image
         return fuse_region
 
-    pyramid_level = 4
-
     def fuse_by_multi_band_blending(self, images):
         """
         多分辨率样条融合,重合区域逐像素各取权重0.5，然后使用拉普拉斯金字塔融合
@@ -307,15 +317,13 @@ class ImageFusion(Method):
         :return: 融合后的图像
         """
         (last_image, next_image) = images
-        last_lp, last_gp = self.get_laplacian_pyramid(last_image)
-        next_lp, next_gp = self.get_laplacian_pyramid(next_image)
+        last_lp, last_gp = self._get_laplacian_pyramid(last_image)
+        next_lp, next_gp = self._get_laplacian_pyramid(next_image)
         fuse_lp = []
         for i in range(self.pyramid_level):
             fuse_lp.append(last_lp[i] * 0.5 + next_lp[i] * 0.5)
-        fuse_region = np.uint8(self.reconstruct(fuse_lp))
+        fuse_region = np.uint8(self._reconstruct(fuse_lp))
         return fuse_region
-
-    block_size = 5
 
     def fuse_by_spatial_frequency(self, images):
         """
@@ -325,34 +333,33 @@ class ImageFusion(Method):
         :return:融合后的图像
         """
         (last_image, next_image) = images
-        weight_matrix = self.get_spatial_frequency_matrix(images)
+        weight_matrix = self._get_spatial_frequency_matrix(images)
         fuse_region = last_image * weight_matrix + next_image * (1 - weight_matrix)
         # print(np.amin(fuse_region), np.amax(fuse_region))
         return fuse_region.astype(np.uint8)
 
-    gpu_device = "cuda:0"
-    def get_spatial_frequency_matrix(self, images, block_size=5):
+    def _get_spatial_frequency_matrix(self, images, block_size=5):
         block_num = block_size // 2
         (last_image, next_image) = images
         weight_matrix = np.ones(last_image.shape)
         if torch.cuda.is_available():
             # 将图像打入GPU并增加维度
-            last_cuda = torch.from_numpy(last_image).float().to(self.gpu_device).reshape((1, 1, last_image.shape[0], last_image.shape[1]))
-            next_cuda = torch.from_numpy(next_image).float().to(self.gpu_device).reshape((1, 1, next_image.shape[0], next_image.shape[1]))
+            last_cuda = torch.from_numpy(last_image).float().to(self.device).reshape((1, 1, last_image.shape[0], last_image.shape[1]))
+            next_cuda = torch.from_numpy(next_image).float().to(self.device).reshape((1, 1, next_image.shape[0], next_image.shape[1]))
            # 创建向右/向下平移的卷积核 + 打入GPU + 增加维度
-            right_shift_kernel = torch.FloatTensor([[0, 0, 0], [1, 0, 0], [0, 0, 0]]).to(self.gpu_device).reshape((1, 1, 3, 3))
-            bottom_shift_kernel = torch.FloatTensor([[0, 1, 0], [0, 0, 0], [0, 0, 0]]).to(self.gpu_device).reshape((1, 1, 3, 3))
+            right_shift_kernel = torch.FloatTensor([[0, 0, 0], [1, 0, 0], [0, 0, 0]]).to(self.device).reshape((1, 1, 3, 3))
+            bottom_shift_kernel = torch.FloatTensor([[0, 1, 0], [0, 0, 0], [0, 0, 0]]).to(self.device).reshape((1, 1, 3, 3))
             last_right_shift = f.conv2d(last_cuda, right_shift_kernel, padding=1)
             last_bottom_shift = f.conv2d(last_cuda, bottom_shift_kernel, padding=1)
             next_right_shift = f.conv2d(next_cuda, right_shift_kernel, padding=1)
             next_bottom_shift = f.conv2d(next_cuda, bottom_shift_kernel, padding=1)
             last_sf = torch.pow((last_right_shift - last_cuda), 2) + torch.pow((last_bottom_shift - last_cuda), 2)
             next_sf = torch.pow((next_right_shift - next_cuda), 2) + torch.pow((next_bottom_shift - next_cuda), 2)
-            add_kernel = torch.ones((block_size, block_size)).float().to(self.gpu_device).reshape((1, 1, block_size, block_size))
+            add_kernel = torch.ones((block_size, block_size)).float().to(self.device).reshape((1, 1, block_size, block_size))
             last_sf_convolve = f.conv2d(last_sf, add_kernel, padding=block_num)
             next_sf_convolve = f.conv2d(next_sf, add_kernel, padding=block_num)
-            weight_zeros = torch.zeros((last_sf_convolve.shape[2], last_sf_convolve.shape[3])).to(self.gpu_device)
-            weight_ones = torch.ones((last_sf_convolve.shape[2], last_sf_convolve.shape[3])).to(self.gpu_device)
+            weight_zeros = torch.zeros((last_sf_convolve.shape[2], last_sf_convolve.shape[3])).to(self.device)
+            weight_ones = torch.ones((last_sf_convolve.shape[2], last_sf_convolve.shape[3])).to(self.device)
             sf_compare = torch.where(last_sf_convolve.squeeze(0).squeeze(0) > next_sf_convolve.squeeze(0).squeeze(0), weight_ones, weight_zeros)
             weight_matrix = sf_compare.cpu().numpy()
             weight_matrix = cv2.bilateralFilter(src=weight_matrix, d=30, sigmaColor=10, sigmaSpace=7)
@@ -366,16 +373,16 @@ class ImageFusion(Method):
         :return: 融合后的图像
         """
         (last_image, next_image) = images
-        last_lp, last_gp = self.get_laplacian_pyramid(last_image)
-        next_lp, next_gp = self.get_laplacian_pyramid(next_image)
-        weight_matrix = self.get_spatial_frequency_matrix(images)
+        last_lp, last_gp = self._get_laplacian_pyramid(last_image)
+        next_lp, next_gp = self._get_laplacian_pyramid(next_image)
+        weight_matrix = self._get_spatial_frequency_matrix(images)
         # wm_gp 为weight_matrix的高斯金字塔
-        wm_gp = self.get_gaussian_pyramid(weight_matrix)
+        wm_gp = self._get_gaussian_pyramid(weight_matrix)
         fuse_lp = []
         for i in range(self.pyramid_level):
             fuse_lp.append(last_lp[i] * wm_gp[self.pyramid_level - i - 1] +
                            next_lp[i] * (1 - wm_gp[self.pyramid_level - i - 1]))
-        fuse_region = np.uint8(self.reconstruct(fuse_lp))
+        fuse_region = np.uint8(self._reconstruct(fuse_lp))
         return fuse_region
     
     def fuse_by_deep_fuse(self, images):
@@ -390,22 +397,6 @@ class ImageFusion(Method):
         fuse_region = 0
         return fuse_region
 
-    input_size_cnn = 256
-    center_size = 200
-    max_input_num = 10
-    device = "cuda:0"
-    data_transforms = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize([0.3976813856328417], [0.05057423681125553]),
-    ])
-    model = UNet(n_channels=1, n_classes=1)
-    project_address = os.getcwd()
-    parameter_address = os.path.join(os.path.join(os.path.join(project_address, 'nets'), 'parameters'), '7_new_data_load.pth')
-    #         state = torch.load("./our_method/model/27test_unet.pth")
-    state = torch.load(parameter_address)
-    model.load_state_dict(state['model'])
-    model.to(device)
-    model.eval()
     def fuse_by_our_framework(self, images):
         """
         本文算法融合，引用自：
@@ -425,20 +416,14 @@ class ImageFusion(Method):
         next_expand = cv2.copyMakeBorder(next_image, padding_num, padding_num, padding_num, padding_num,
                                              cv2.BORDER_REFLECT)
         row_expand, col_expand = last_expand.shape[0:2]
-        #         print("row_expand", row_expand)
-        #         print("col_expand", col_expand)
         row_have_remain = True
         col_have_remain = True
         if (row_expand - padding_num * 2) % self.center_size == 0:
             row_have_remain = False
         if (col_expand - padding_num * 2) % self.center_size == 0:
             col_have_remain = False
-        #         print("row_have_remain", row_have_remain)
-        #         print("col_have_remain", col_have_remain)
         row_num = (row_expand - padding_num * 2) // self.center_size
         col_num = (col_expand - padding_num * 2) // self.center_size
-        #         print("row_num", row_num)
-        #         print("col_num", col_num)
         for i in range(row_num + 1):
             for j in range(col_num + 1):
                 row_start = i * self.center_size
@@ -457,27 +442,16 @@ class ImageFusion(Method):
                         col_end = col_expand
                     else:
                         continue
-                #                 print("***")
-                #                 print(row_start, row_end)
-                #                 print(col_start, col_end)
                 last_input_list.append(last_expand[row_start: row_end, col_start:col_end])
                 next_input_list.append(next_expand[row_start: row_end, col_start:col_end])
-        #         print(len(last_input_list))
-        #         for item in last_input_list:
-        #             print(item.shape)
-        #         print(len(next_input_list))
-        #         for item in next_input_list:
-        #             print(item.shape)
         input_num = len(last_input_list)
         # 将list转化为Tensor
-        last_input_tensors = self.trans_list_to_Tensor(last_input_list, input_num)
-        next_input_tensors = self.trans_list_to_Tensor(next_input_list, input_num)
-        #         print(last_input_tensors.size())
-        #         print(next_input_tensors.size())
+        last_input_tensors = self._trans_list_to_tensor(last_input_list, input_num)
+        next_input_tensors = self._trans_list_to_tensor(next_input_list, input_num)
         # 分步送入网络
         output_tensors = None
         if input_num < self.max_input_num:
-            output_tensors = self.run_network(last_input_tensors, next_input_tensors).data
+            output_tensors = self._run_network(last_input_tensors, next_input_tensors).data
         else:
             output_tensors = torch.zeros([input_num, 1, self.input_size_cnn, self.input_size_cnn])
             implement_num = 0
@@ -485,25 +459,20 @@ class ImageFusion(Method):
                 remain_num = input_num - implement_num
                 if remain_num > self.max_input_num:
                     output_tensors[implement_num:implement_num + self.max_input_num, :] = \
-                        self.run_network(
+                        self._run_network(
                             last_input_tensors[implement_num:implement_num + self.max_input_num, :, :, :],
                             next_input_tensors[implement_num:implement_num + self.max_input_num, :, :, :],
                         ).data
                 else:
                     output_tensors[implement_num:input_num, :] = \
-                        self.run_network(
+                        self._run_network(
                             last_input_tensors[implement_num: input_num, :, :, :],
                             next_input_tensors[implement_num: input_num, :, :, :],
                         ).data
                 implement_num += self.max_input_num
 
         # 将Tensor转化为list
-        output_list = self.trans_Tensor_to_list(output_tensors, input_num)
-        print("output_list", str(len(output_list)))
-        #         for item in output_list:
-        #             print(item.shape)
-        #             print(np.unique(item))
-        # 放置于图像中各个位置
+        output_list = self._trans_tensor_to_list(output_tensors, input_num)
         row, col = last_image.shape[0:2]
         row_num, col_num = 0, 0
         if col_have_remain:
@@ -525,53 +494,37 @@ class ImageFusion(Method):
             if col_have_remain and col_start == (col_num - 1) * self.center_size:
                 col_start = col - self.center_size
                 col_end = col
-            #             print("####")
-            #             print("index:",index)
-            #             print(row_start, row_end)
-            #             print(col_start, col_end)
             fuse_region[row_start: row_end, col_start: col_end] = \
                 output[padding_num: padding_num + self.center_size, padding_num: padding_num + self.center_size]
-        #         print(fuse_region.shape)
-        #         print(np.unique(fuse_region))
         return fuse_region
 
-    def run_network(self, last_input, next_input):
+    def _run_network(self, last_input, next_input):
         img1, img2 = last_input, next_input
-        img1.to(self.device)
-        img2.to(self.device)
-
         with torch.no_grad():
             # Forward
             img1, img2 = img1.to(self.device), img2.to(self.device)
             img1_lum = img1[:, 0:1]
             img2_lum = img2[:, 0:1]
-            #             print('img_lum.shape', img1_lum.shape)
-            #             print("img1_lum:", np.unique(img1_lum.cpu().numpy()))
-            #             print("img2_lum:", np.unique(img2_lum.cpu().numpy()))
             self.model.setInput(img1_lum, img2_lum)
             y_f = self.model.forward()
-            #             print("y_f.shape", y_f.size())
-            #             print("y_f", np.unique(y_f.cpu().numpy()))
-            # (y_f_via_post_process, y_f_tensor) = fusePostProcess(y_f)
-            y_f = ((y_f * 0.05057423681125553) + 0.3976813856328417) * 255
-        #             print('y_f_via_post_process', np.unique(y_f_via_post_process))
-        #             print('y_f_tensor', y_f_tensor)
+            y_f = ((y_f * self.std_value) + self.mean_value) * 255.0
         return y_f
 
-    def trans_list_to_Tensor(self, input_list, input_num):
+    def _trans_list_to_tensor(self, input_list, input_num):
         input_tensors = torch.zeros((input_num, 1, self.input_size_cnn, self.input_size_cnn))
         for index, array in enumerate(input_list):
-            input_tensors[index, :, :, :] = self.data_transforms(PIL.Image.fromarray(array.astype(np.float)))
+            input_tensors[index, :, :, :] = \
+                self.data_transforms(np.expand_dims(array, axis=2).astype(np.float32) / 255)
         return input_tensors
 
-    def trans_Tensor_to_list(self, output_tensors, input_num):
+    def _trans_tensor_to_list(self, output_tensors, input_num):
         output_list = []
         for i in range(input_num):
             temp = output_tensors[i, 0, :, :].numpy().astype(np.uint8)
             output_list.append(temp)
         return output_list
 
-    def get_gaussian_pyramid(self, input_image):
+    def _get_gaussian_pyramid(self, input_image):
         """
         获得图像的高斯金字塔
         :param input_image:输入图像
@@ -584,14 +537,14 @@ class ImageFusion(Method):
             gp.append(g)
         return gp
 
-    def get_laplacian_pyramid(self, input_image):
+    def _get_laplacian_pyramid(self, input_image):
         """
         求一张图像的拉普拉斯金字塔
         :param input_image: 输入图像
         :return: 拉普拉斯金字塔(laplacian_pyramid, lp, 从小到大)，高斯金字塔(gaussian_pyramid, gp,从大到小),
                   均以list形式
         """
-        gp = self.get_gaussian_pyramid(input_image)
+        gp = self._get_gaussian_pyramid(input_image)
         lp = [gp[self.pyramid_level - 1]]
         for i in range(self.pyramid_level - 1, -1, -1):
             ge = cv2.pyrUp(gp[i])
@@ -600,7 +553,7 @@ class ImageFusion(Method):
         return lp, gp
 
     @staticmethod
-    def reconstruct(input_pyramid):
+    def _reconstruct(input_pyramid):
         """
         根据拉普拉斯金字塔重构图像，该list第一个是最小的原图，后面是更大的拉普拉斯表示
         :param input_pyramid: 输入的金字塔

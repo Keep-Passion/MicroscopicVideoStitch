@@ -432,6 +432,6 @@ class VideoStitch(Method):
         elif int(self.video_name[8]) == 5:
             dataset_address = os.path.join(dataset_address, "test")
         folder_address = os.path.join(dataset_address, folder_name)
-        self.make_out_dir(folder_address)
-        cv2.imwrite(os.path.join(folder_address, folder_name + "_1.png", last_roi))
-        cv2.imwrite(os.path.join(folder_address, folder_name + "_2.png", next_roi))
+        # self.make_out_dir(folder_address)
+        # cv2.imwrite(os.path.join(folder_address, folder_name + "_1.png", last_roi))
+        # cv2.imwrite(os.path.join(folder_address, folder_name + "_2.png", next_roi))
